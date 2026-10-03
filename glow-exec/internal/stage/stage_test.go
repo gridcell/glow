@@ -184,6 +184,23 @@ func TestIfMustBeBoolean(t *testing.T) {
 	}
 }
 
+func TestIfAcceptsBareExpression(t *testing.T) {
+	for condition, want := range map[string]bool{"1 > 2": false, "${{ 1 > 2 }}": false, "true && 2 > 1": true} {
+		p := &params.Params{If: condition}
+		result, err := Run(context.Background(), Config{Tool: tool(t), Params: p, Layout: workdir.Layout{Root: t.TempDir()}})
+		if want {
+			// The step runs on; stage then fails on the missing inputs, which is not under test.
+			if result != nil && result.Skipped {
+				t.Errorf("%q skipped the step", condition)
+			}
+			continue
+		}
+		if err != nil || !result.Skipped {
+			t.Errorf("%q: result = %+v, err = %v, want skipped", condition, result, err)
+		}
+	}
+}
+
 func TestStagingNoneIsRefused(t *testing.T) {
 	if err := CheckStaging("none"); err == nil {
 		t.Fatal("staging none is not supported yet")

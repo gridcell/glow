@@ -91,6 +91,18 @@ func TestCollectEveryKind(t *testing.T) {
 	if _, err := os.Stat(f.layout.Resolved()); err != nil {
 		t.Fatal(err)
 	}
+	info, err := os.ReadFile(f.layout.Output("info"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(strings.Fields(string(info)), "") != `{"bands":3}` {
+		t.Fatalf("outputs/info.json = %q", info)
+	}
+	for _, name := range []string{"image", "tiles", "parts"} {
+		if _, err := os.Stat(f.layout.Output(name)); err != nil {
+			t.Fatalf("outputs/%s.json: %v", name, err)
+		}
+	}
 }
 
 func TestCollectErrors(t *testing.T) {

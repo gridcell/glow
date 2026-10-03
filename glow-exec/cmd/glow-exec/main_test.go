@@ -263,3 +263,26 @@ func TestEvalCommand(t *testing.T) {
 		t.Fatalf("exit %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
 	}
 }
+
+func TestInstallCopiesTheBinary(t *testing.T) {
+	dest := filepath.Join(t.TempDir(), "exec")
+	var stderr bytes.Buffer
+	if code := Main(context.Background(), []string{"install", dest}, nil, &bytes.Buffer{}, &stderr); code != 0 {
+		t.Fatalf("install exited %d: %s", code, stderr.String())
+	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := os.ReadFile(self)
+	got, err := os.ReadFile(dest)
+	if err != nil || !bytes.Equal(got, want) {
+		t.Fatalf("installed copy differs from the binary (err %v)", err)
+	}
+	if info, _ := os.Stat(dest); info.Mode().Perm()&0o100 == 0 {
+		t.Fatalf("installed copy is not executable: %v", info.Mode())
+	}
+	if code := Main(context.Background(), []string{"install"}, nil, &bytes.Buffer{}, &bytes.Buffer{}); code != 2 {
+		t.Fatalf("install without a path exited %d, want 2", code)
+	}
+}
