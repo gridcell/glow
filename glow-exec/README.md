@@ -13,7 +13,7 @@ docker build -t glow-exec .
 
 | Package | Content |
 | --- | --- |
-| `cmd/glow-exec` | Command line: `run`, `stage`, `collect`, `eval` |
+| `cmd/glow-exec` | Command line: `run`, `stage`, `collect`, `eval`, `install` |
 | `internal/params` | Decodes the step parameters from the environment and flags |
 | `internal/manifest` | Selects the tool from a manifest and validates values with JSON Schema |
 | `internal/cel` | CEL evaluation, custom functions and `${{ }}` substitution |

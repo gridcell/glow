@@ -1,0 +1,17 @@
+# A block member uses a let binding of its block.
+name: block-outer-let
+inputs:
+  sources: { type: array }
+steps:
+  - id: per_source
+    for_each: ${{ inputs.sources }}
+    as: s
+    let:
+      path: ${{ s.path }}
+    steps:
+      - id: cog
+        uses: gdal.translate@1
+        with:
+          source: ${{ path }}
+    outputs:
+      result: ${{ steps.cog.outputs.result }}

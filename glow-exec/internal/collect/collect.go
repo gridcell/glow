@@ -1,6 +1,6 @@
 // Package collect gathers a step's outputs after its tool exits: it checks
 // every declared output, uploads files to the run prefix and writes
-// /work/outputs.resolved.json.
+// /work/outputs.resolved.json and /work/outputs/<name>.json.
 package collect
 
 import (
@@ -67,6 +67,11 @@ func Run(ctx context.Context, cfg Config) (map[string]any, error) {
 			return nil, err
 		}
 		outputs[name] = value
+	}
+	for name, value := range outputs {
+		if err := workdir.WriteJSON(cfg.Layout.Output(name), value); err != nil {
+			return nil, err
+		}
 	}
 	resolved := map[string]any{"outputs": outputs, "skipped": false}
 	if err := workdir.WriteJSON(cfg.Layout.Resolved(), resolved); err != nil {

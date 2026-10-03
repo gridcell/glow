@@ -5,8 +5,8 @@ Workflows. This package holds the data model for workflow files and toolpack
 manifests, their JSON Schemas, and the `glow` command line.
 
 The current scope is validation, the toolpack registry, which resolves
-`uses:` references to tools and images, and `glow plan`, which prints the
-validated graph. Compilation comes later.
+`uses:` references to tools and images, `glow plan`, which prints the
+validated graph, and `glow compile`, which writes an Argo Workflow.
 
 ## Setup
 
@@ -77,6 +77,9 @@ error: cog.with.source [GLOW-E030]
 | `GLOW-E032` | `if` is not a boolean |
 | `GLOW-E033` | An operation in an expression does not apply to its operand types |
 | `GLOW-E040` | The toolpack registry cannot be loaded |
+| `GLOW-E050` | `glow compile` does not support this construct yet |
+| `GLOW-E051` | `glow compile` refuses a local image without `--allow-local-images` |
+| `GLOW-E052` | Two names become the same Argo name |
 
 Print the validated graph:
 
@@ -104,6 +107,43 @@ map with computed keys, is checked at runtime. Besides the standard CEL
 functions, expressions can use `date(value, format)`, `path.basename`,
 `path.dirname`, `path.stem`, `path.ext`, `path.join`, `media.matches`,
 `media.accepts`, `media.base`, `media.param` and `media.ext`.
+
+Compile a workflow to an Argo Workflow:
+
+```bash
+uv run glow compile examples/sst-ingest.yaml --allow-local-images -o sst.yaml
+```
+
+Without `-o`, the YAML goes to stdout. The options `--namespace`,
+`--service-account`, `--run-prefix`, `--glow-exec-image`, `--engine-image`
+and `--sandbox-image` set the deployment values. The compiler refuses a
+toolpack image without a digest, such as `local/gdal:dev`, unless you pass
+`--allow-local-images`.
+
+The Workflow has a `main` DAG, one DAG template per `for_each` block, and one
+container template per tool configuration. Each step runs under glow-exec,
+which gets the step's `with` block as base64 and evaluates the expressions in
+the pod. Pass workflow parameter values as JSON. For example, a string input
+takes `"s3://bucket/sst/"`, with the quotes.
+
+The compiler has these limits for now:
+
+- A step inside a block can use workflow inputs, its own steps, and the loop
+  variable of its block. An outer step output, a `let` name, or the loop
+  variable of an enclosing block fails with `GLOW-E050`.
+- A block output must be one member output, `${{ steps.<id>.outputs.<name> }}`.
+- A `for_each` value must be one reference: a step output, an input, or the
+  loop variable of the block, with optional field names after it.
+- The `if` of a block can use inputs and steps beside the block.
+
+The golden files in `tests/compile/golden/` pin the compiler output. After a
+compiler change, refresh them and review the diff:
+
+```bash
+UPDATE_GOLDEN=1 uv run pytest tests/compile
+```
+
+CI runs `argo lint --offline` on every golden file.
 
 Lint toolpack manifests, and regenerate or check the registry lock:
 
@@ -136,6 +176,8 @@ The step runtime, glow-exec, is a Go binary in `glow-exec/`. See
 | `src/glow/expressions/` | Finds `${{ ... }}` spans and the references inside them. Expressions are not parsed yet. |
 | `src/glow/validate/` | Checks tools, scopes, order and edge types after the schema check |
 | `src/glow/ir.py`, `src/glow/plan.py` | The validated workflow IR and its `glow plan` rendering |
+| `src/glow/compile/` | The compiler from the IR to an Argo Workflow |
+| `tests/compile/golden/` | Compiled Workflows that pin the compiler output |
 | `src/glow/registry.py` | Resolves `uses:` references through the lock file |
 | `src/glow/builtins/` | Built-in tools (`fs.group`, `fs.glob`) |
 | `examples/` | Example workflows |

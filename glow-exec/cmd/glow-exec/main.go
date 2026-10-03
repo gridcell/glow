@@ -6,6 +6,7 @@
 //	glow-exec stage --tool <name@major> [flags]
 //	glow-exec collect --tool <name@major> [flags]
 //	glow-exec eval [--env <json>|@file] [--template] <expression>
+//	glow-exec install <path>
 package main
 
 import (
@@ -49,6 +50,7 @@ const usage = `usage:
   glow-exec stage --tool <name@major> [flags]
   glow-exec collect --tool <name@major> [flags]
   glow-exec eval [--env <json>|@file] [--template] <expression>
+  glow-exec install <path>
 `
 
 func main() {
@@ -71,6 +73,8 @@ func Main(ctx context.Context, args, environ []string, stdout, stderr io.Writer)
 		err = phases(ctx, args[0], args[1:], environ, stdout, stderr)
 	case "eval":
 		err = evalCommand(args[1:], stdout, stderr)
+	case "install":
+		err = installCommand(args[1:])
 	default:
 		fmt.Fprint(stderr, usage)
 		return exitUsage
@@ -195,6 +199,32 @@ func readInputs(layout workdir.Layout) (map[string]any, error) {
 		return nil, fmt.Errorf("%s: %w", layout.InputsJSON(), err)
 	}
 	return inputs, nil
+}
+
+// installCommand copies the running binary to path. The step pod's init
+// container runs it, because the glow-exec image has no shell or cp.
+func installCommand(args []string) error {
+	if len(args) != 1 {
+		return usageError{errors.New("install takes exactly one path")}
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	src, err := os.Open(self)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+	dst, err := os.OpenFile(args[0], os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(dst, src); err != nil {
+		dst.Close()
+		return err
+	}
+	return dst.Close()
 }
 
 // evalCommand evaluates one expression against a JSON environment and

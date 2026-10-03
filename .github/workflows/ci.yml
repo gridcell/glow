@@ -39,6 +39,24 @@ jobs:
         run: |
           uv run glow plan examples/sst-ingest.yaml
           uv run glow plan examples/minimal-if-script.yaml
+      - name: Compile the examples
+        run: |
+          uv run glow compile examples/sst-ingest.yaml --allow-local-images -o "$RUNNER_TEMP/sst-ingest.yaml"
+          uv run glow compile examples/minimal-if-script.yaml --allow-local-images -o "$RUNNER_TEMP/minimal-if-script.yaml"
+      - name: Install the argo CLI
+        env:
+          ARGO_VERSION: v4.1.4
+          ARGO_SHA256: 2c8ef41d53593f2ee64d85fb69b631c89a0fc2c57e6ce011422caa525a97ec58
+        run: |
+          mkdir -p "$RUNNER_TEMP/argo"
+          curl -fsSL -o "$RUNNER_TEMP/argo/argo.gz" \
+            "https://github.com/argoproj/argo-workflows/releases/download/${ARGO_VERSION}/argo-linux-amd64.gz"
+          echo "${ARGO_SHA256}  $RUNNER_TEMP/argo/argo.gz" | sha256sum -c -
+          gunzip "$RUNNER_TEMP/argo/argo.gz"
+          chmod +x "$RUNNER_TEMP/argo/argo"
+          echo "$RUNNER_TEMP/argo" >> "$GITHUB_PATH"
+      - name: Lint the golden files with argo
+        run: argo lint --offline tests/compile/golden/*.yaml
 
   glow-exec:
     runs-on: ubuntu-latest

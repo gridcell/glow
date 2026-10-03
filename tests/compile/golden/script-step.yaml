@@ -1,0 +1,224 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: script-step-
+  namespace: tenant-acme
+spec:
+  entrypoint: main
+  serviceAccountName: glow-runner
+  templates:
+  - name: main
+    dag:
+      tasks:
+      - name: score
+        template: script-score
+        arguments:
+          parameters:
+          - name: raw-with
+            value: eyJ0aHJlc2hvbGQiOiIke3sgaW5wdXRzLnRocmVzaG9sZCB9fSIsImxhYmVsIjoiJHt7IGlucHV0cy5sYWJlbCB9fS0ke3sgaW5wdXRzLnRocmVzaG9sZCB9fSIsIm9wdGlvbnMiOnsibW9kZSI6ImZhc3QifX0=
+          - name: scope
+            value: '{"inputs":{"threshold":{{workflow.parameters.threshold}},"label":{{workflow.parameters.label}}}}'
+          - name: run-prefix
+            value: s3://artifact-bucket-acme/runs/{{workflow.uid}}/steps/score
+          - name: script
+            value: aW1wb3J0IGpzb24KaW5wdXRzID0ganNvbi5sb2FkKG9wZW4oIi93b3JrL2lucHV0cy5qc29uIikpCmpzb24uZHVtcCh7InNjb3JlIjogaW5wdXRzWyJ0aHJlc2hvbGQiXSAqIDIsICJ0YWdzIjogWyJhIl19LCBvcGVuKCIvd29yay9vdXRwdXRzLmpzb24iLCAidyIpKQo=
+      - name: report
+        depends: score
+        template: script-report
+        arguments:
+          parameters:
+          - name: raw-with
+            value: eyJzY29yZSI6IiR7eyBzdGVwcy5zY29yZS5vdXRwdXRzLnNjb3JlIH19IiwiZmlyc3RfdGFnIjoiJHt7IHN0ZXBzLnNjb3JlLm91dHB1dHMudGFnc1swXSB9fSJ9
+          - name: scope
+            value: '{"inputs":{"threshold":{{workflow.parameters.threshold}},"label":{{workflow.parameters.label}}}}'
+          - name: run-prefix
+            value: s3://artifact-bucket-acme/runs/{{workflow.uid}}/steps/report
+          - name: if
+            value: steps.score.outputs.score > inputs.threshold
+          - name: script
+            value: ZWNobyAneyJkb25lIjogdHJ1ZX0nID4gL3dvcmsvb3V0cHV0cy5qc29uCg==
+          - name: upstream-score
+            value: '{{tasks.score.outputs.parameters.outputs}}'
+  - name: script-score
+    initContainers:
+    - name: glow-init
+      image: ghcr.io/sparkgeo/glow-exec:test
+      command:
+      - /glow-exec
+      - install
+      - /glow/exec
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    volumes:
+    - name: glow
+      emptyDir: {}
+    - name: work
+      emptyDir:
+        sizeLimit: 20Gi
+    container:
+      image: ghcr.io/sparkgeo/glow-sandbox:test
+      args:
+      - sh
+      - -c
+      - printf %s "$1" | base64 -d > /work/script && exec python3 /work/script
+      - glow-script
+      - '{{inputs.parameters.script}}'
+      command:
+      - /glow/exec
+      - run
+      - --tool
+      - glow.script@1
+      - --
+      env:
+      - name: GLOW_RAW_WITH
+        value: '{{inputs.parameters.raw-with}}'
+      - name: GLOW_MANIFEST
+        value: eyJuYW1lIjoiZ2xvdy5zY3JpcHQiLCJpbnB1dHMiOnsidGhyZXNob2xkIjp7InR5cGUiOiJudW1iZXIifSwibGFiZWwiOnsidHlwZSI6InN0cmluZyJ9LCJvcHRpb25zIjp7InR5cGUiOiJvYmplY3QifX0sIm91dHB1dHMiOnsic2NvcmUiOnsidHlwZSI6Im51bWJlciJ9LCJ0YWdzIjp7InR5cGUiOiJhcnJheSJ9fX0=
+      - name: GLOW_SCOPE
+        value: '{{inputs.parameters.scope}}'
+      - name: GLOW_IF
+        value: '{{inputs.parameters.if}}'
+      - name: GLOW_RUN_PREFIX
+        value: '{{inputs.parameters.run-prefix}}'
+      - name: GLOW_STAGING
+        value: copy
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+        readOnly: true
+      - name: work
+        mountPath: /work
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    inputs:
+      parameters:
+      - name: raw-with
+      - name: scope
+      - name: if
+        default: ''
+      - name: run-prefix
+      - name: script
+    outputs:
+      parameters:
+      - name: outputs
+        valueFrom:
+          path: /work/outputs.resolved.json
+      - name: score
+        valueFrom:
+          default: 'null'
+          path: /work/outputs/score.json
+      - name: tags
+        valueFrom:
+          default: 'null'
+          path: /work/outputs/tags.json
+  - name: script-report
+    initContainers:
+    - name: glow-init
+      image: ghcr.io/sparkgeo/glow-exec:test
+      command:
+      - /glow-exec
+      - install
+      - /glow/exec
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    volumes:
+    - name: glow
+      emptyDir: {}
+    - name: work
+      emptyDir:
+        sizeLimit: 20Gi
+    container:
+      image: ghcr.io/sparkgeo/glow-sandbox:test
+      args:
+      - sh
+      - -c
+      - printf %s "$1" | base64 -d > /work/script && exec bash /work/script
+      - glow-run
+      - '{{inputs.parameters.script}}'
+      command:
+      - /glow/exec
+      - run
+      - --tool
+      - glow.run@1
+      - --
+      env:
+      - name: GLOW_RAW_WITH
+        value: '{{inputs.parameters.raw-with}}'
+      - name: GLOW_MANIFEST
+        value: eyJuYW1lIjoiZ2xvdy5ydW4iLCJpbnB1dHMiOnsic2NvcmUiOnsidHlwZSI6Im51bWJlciJ9LCJmaXJzdF90YWciOnt9fSwib3V0cHV0cyI6eyJkb25lIjp7InR5cGUiOiJib29sZWFuIn19fQ==
+      - name: GLOW_SCOPE
+        value: '{{inputs.parameters.scope}}'
+      - name: GLOW_IF
+        value: '{{inputs.parameters.if}}'
+      - name: GLOW_RUN_PREFIX
+        value: '{{inputs.parameters.run-prefix}}'
+      - name: GLOW_STAGING
+        value: copy
+      - name: GLOW_UPSTREAM_score
+        value: '{{inputs.parameters.upstream-score}}'
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+        readOnly: true
+      - name: work
+        mountPath: /work
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    inputs:
+      parameters:
+      - name: raw-with
+      - name: scope
+      - name: if
+        default: ''
+      - name: run-prefix
+      - name: script
+      - name: upstream-score
+    outputs:
+      parameters:
+      - name: outputs
+        valueFrom:
+          path: /work/outputs.resolved.json
+      - name: done
+        valueFrom:
+          default: 'null'
+          path: /work/outputs/done.json
+  arguments:
+    parameters:
+    - name: threshold
+      value: '0.5'
+    - name: label
+      value: '"{scene}"'

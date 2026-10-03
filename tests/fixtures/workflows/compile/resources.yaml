@@ -1,0 +1,28 @@
+# Resources, timeout, retries and staging; two configurations of one tool;
+# a bounded fan-out.
+name: resources
+inputs:
+  sources: { type: array }
+steps:
+  - id: big
+    for_each: ${{ inputs.sources }}
+    as: source
+    max_parallelism: 3
+    uses: gdal.translate@1
+    with:
+      source: ${{ source }}
+      format: COG
+    resources:
+      requests: { cpu: "2", memory: 8Gi }
+      limits: { cpu: 4, memory: 8Gi, gpu: 1 }
+    timeout: 1h30m
+    retries: 2
+    staging: auto
+  - id: small
+    for_each: ${{ inputs.sources }}
+    as: source
+    uses: gdal.translate@1
+    with:
+      source: ${{ source }}
+      format: PNG
+    timeout: 600

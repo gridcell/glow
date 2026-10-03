@@ -152,7 +152,13 @@ func evalIf(evaluator *cel.Evaluator, condition string) (bool, error) {
 	if strings.TrimSpace(condition) == "" {
 		return true, nil
 	}
-	value, err := evaluator.Template(condition)
+	// The compiler passes a bare expression, because Argo would read the
+	// `{{` of a `${{ }}` span as one of its own template tags.
+	evaluate := evaluator.Eval
+	if strings.Contains(condition, "${{") {
+		evaluate = evaluator.Template
+	}
+	value, err := evaluate(condition)
 	if err != nil {
 		return false, fmt.Errorf("if: %w", err)
 	}

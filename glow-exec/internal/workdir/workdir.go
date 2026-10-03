@@ -32,6 +32,13 @@ func (l Layout) OutputsJSON() string { return filepath.Join(l.Root, "outputs.jso
 // becomes the step's output parameter.
 func (l Layout) Resolved() string { return filepath.Join(l.Root, "outputs.resolved.json") }
 
+// Output is written by collect with the resolved value of one output, so
+// that Argo can read each output as its own parameter. The name has been
+// checked to be an identifier.
+func (l Layout) Output(name string) string {
+	return filepath.Join(l.Root, "outputs", name+".json")
+}
+
 // WriteJSON writes v as indented JSON to path through a temporary file, so
 // that a reader never sees a partial document.
 func WriteJSON(path string, v any) error {

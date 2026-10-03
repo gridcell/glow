@@ -13,6 +13,13 @@ The compiler starts a step as:
 If no command follows `--`, glow-exec runs the tool's `command` from the
 manifest.
 
+The glow-exec image has no shell. The init container of a step pod copies the
+binary into a shared volume with:
+
+```text
+/glow-exec install /glow/exec
+```
+
 ## Phases
 
 `run` executes three phases in order. `stage` and `collect` run one phase
@@ -37,7 +44,9 @@ alone, which helps when you debug a step.
    - Checks that every declared output exists and that each file extension
      fits its media type.
    - Uploads files to `<GLOW_RUN_PREFIX>/<output>/<basename>`.
-   - Writes `/work/outputs.resolved.json`.
+   - Writes `/work/outputs.resolved.json`, and the value of each output to
+     `/work/outputs/<output>.json`. Argo reads each of these files as one
+     output parameter.
 
 A validation error names the input or output and the rejected value or the
 expected path. Stage errors happen before the tool starts.
@@ -53,11 +62,14 @@ whose content is read without base64 encoding.
 | `GLOW_RAW_WITH` | `--raw-with` | Base64 of the step's `with` block as JSON, with `${{ }}` expressions unevaluated. |
 | `GLOW_MANIFEST` | `--manifest` | Base64 of the toolpack manifest (YAML or JSON), or of a single tool spec for `run` and `script` steps. |
 | `GLOW_SCOPE` | `--scope` | JSON object. Each top-level key is an expression variable: `inputs`, loop variables, `let` values. |
-| `GLOW_IF` | `--if` | The step's `if` value, for example `${{ steps.count.outputs.total > 0 }}`. Empty means run. |
+| `GLOW_IF` | `--if` | The step's `if` value, for example `${{ steps.count.outputs.total > 0 }}`. A value without `${{ }}` is one expression; the compiler passes this form, because Argo reads `{{` as its own tag. Empty means run. |
 | `GLOW_UPSTREAM_<step>` | `--upstream <step>=<json>` | The `outputs.resolved.json` of an upstream step. `<step>` is the step id as written in the workflow. The flag can repeat. |
 | `GLOW_RUN_PREFIX` | `--run-prefix` | Where outputs go: an absolute path, `file://` URI or `s3://` URI. Required by collect. |
 | `GLOW_WORK_DIR` | `--work-dir` | The work directory. The default is `/work`. |
 | `GLOW_STAGING` | `--staging` | `copy` (the default) or `auto`, which uses `copy`. `none` is not supported yet. |
+
+For `run` and `script` steps, the compiler writes the tool spec. An input it
+cannot type statically has no `type`, and accepts any value.
 
 Each decoded parameter is limited to 16 MiB. The manifest is limited to
 1 MiB. Linux limits one environment variable to 128 KiB, so large values

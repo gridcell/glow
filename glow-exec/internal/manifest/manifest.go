@@ -161,8 +161,13 @@ func (t *Tool) check() error {
 		if !identifier.MatchString(name) {
 			return fmt.Errorf("input name %q is not an identifier", name)
 		}
-		if _, ok := decl["type"].(string); !ok {
-			return fmt.Errorf("input %q has no type", name)
+		// The specs the compiler synthesizes for run and script steps leave
+		// out the type of a value it cannot type statically; such an input
+		// accepts any value.
+		if valueType, present := decl["type"]; present {
+			if _, ok := valueType.(string); !ok {
+				return fmt.Errorf("input %q type must be a string", name)
+			}
 		}
 	}
 	for _, name := range t.Required {

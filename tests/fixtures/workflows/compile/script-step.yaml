@@ -1,0 +1,27 @@
+# A Python script step, and a bash run step gated by an if.
+name: script-step
+inputs:
+  threshold: { type: number, default: 0.5 }
+  label: { type: string, default: "{scene}" }
+steps:
+  - id: score
+    script: |
+      import json
+      inputs = json.load(open("/work/inputs.json"))
+      json.dump({"score": inputs["threshold"] * 2, "tags": ["a"]}, open("/work/outputs.json", "w"))
+    with:
+      threshold: ${{ inputs.threshold }}
+      label: ${{ inputs.label }}-${{ inputs.threshold }}
+      options: { mode: fast }
+    outputs:
+      score: { type: number }
+      tags: { type: array }
+  - id: report
+    if: ${{ steps.score.outputs.score > inputs.threshold }}
+    run: |
+      echo '{"done": true}' > /work/outputs.json
+    with:
+      score: ${{ steps.score.outputs.score }}
+      first_tag: ${{ steps.score.outputs.tags[0] }}
+    outputs:
+      done: { type: boolean }

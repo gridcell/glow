@@ -78,6 +78,21 @@ func TestLoadSingleToolSpec(t *testing.T) {
 	}
 }
 
+func TestUntypedInputAcceptsAnyValue(t *testing.T) {
+	tool, err := Load([]byte(`{"name": "glow.run", "inputs": {"v": {}}}`), "glow.run@1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []any{"text", int64(3), []any{"a"}, map[string]any{"k": true}} {
+		if err := tool.ValidateInput("v", value); err != nil {
+			t.Errorf("ValidateInput(%v) = %v", value, err)
+		}
+	}
+	if _, err := Load([]byte(`{"name": "glow.run", "inputs": {"v": {"type": 3}}}`), "glow.run@1"); err == nil {
+		t.Fatal("a non-string type should fail")
+	}
+}
+
 func TestLoadRejectsUnsafeNames(t *testing.T) {
 	for _, spec := range []string{
 		`{"name": "a.b", "inputs": {"../x": {"type": "string"}}}`,

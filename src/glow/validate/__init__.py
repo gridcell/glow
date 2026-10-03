@@ -16,6 +16,7 @@ yet.
 from collections.abc import Collection
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from glow import ir as glow_ir
 from glow.builtins import BUILTINS
@@ -23,6 +24,7 @@ from glow.lock import LockError
 from glow.manifests import ManifestError
 from glow.models import Step, Workflow, iter_steps
 from glow.registry import Registry, ResolvedTool
+from glow.types import Array, Bundle, File, GlowType, Group, Scalar
 from glow.validate import edges, graph, scopes
 from glow.validate.errors import Code, GlowError
 from glow.validate.tools import check_tools, media_type_errors
@@ -36,6 +38,12 @@ from glow.validation import (
 )
 
 DEFAULT_TOOLPACKS = Path("toolpacks")
+
+# Names of the tool specs synthesized for inline `run` and `script` steps.
+RUN_TOOL = "glow.run"
+SCRIPT_TOOL = "glow.script"
+
+_JSON_TYPES = frozenset({"string", "number", "integer", "boolean", "object", "array"})
 
 __all__ = ["DEFAULT_TOOLPACKS", "Code", "GlowError", "ValidationReport", "check", "validate"]
 
@@ -137,6 +145,9 @@ def _build_ir(
     return glow_ir.Workflow(
         name=workflow.name,
         inputs={name: types.input_type(name) for name in workflow.inputs},
+        defaults={
+            name: spec.default for name, spec in workflow.inputs.items() if spec.default is not None
+        },
         steps=steps,
         edges=[_ir_edge(edge) for edge in edge_report.edges],
     )
@@ -153,6 +164,7 @@ def _ir_step(
     if step.as_ is not None:
         loop = glow_ir.Loop(
             variable=step.as_,
+            operand=step.for_each if step.for_each is not None else [],
             over=types.loop_operand(step.id),
             item=types.loop_item(step.id),
             max_parallelism=step.max_parallelism,
@@ -162,16 +174,87 @@ def _ir_step(
         kind=step.kind,
         parent=parent,
         tool=_tool_identity(resolved) if resolved is not None else None,
+        tool_spec=_tool_spec(step, types, resolved),
+        raw_with=step.with_ or {},
+        run=step.run,
+        script=step.script,
         depends_on=dependency_graph.depends_on.get(step.id, []),
         loop=loop,
         let={name: types.let_type(step.id, name) for name in step.let or {}},
         outputs=types.outputs(step.id),
+        block_outputs={
+            name: value
+            for name, value in (step.outputs or {}).items()
+            if step.steps is not None and isinstance(value, str)
+        },
         condition=step.if_,
         staging=step.staging or "copy",
         resources=step.resources,
         timeout=step.timeout,
         retries=step.retries,
+        secrets=step.secrets or [],
     )
+
+
+def _tool_spec(
+    step: Step, types: edges.Types, resolved: ResolvedTool | None
+) -> dict[str, Any] | None:
+    if resolved is not None:
+        return resolved.tool.model_dump(mode="json", by_alias=True, exclude_none=True)
+    if step.run is None and step.script is None:
+        return None
+    inputs = {}
+    for key, value in (step.with_ or {}).items():
+        declaration = _with_declaration(step.id, key, value, types)
+        if declaration is not None:
+            inputs[key] = declaration
+    outputs = {
+        name: declaration.model_dump(mode="json", exclude_none=True)
+        for name, declaration in (step.outputs or {}).items()
+        if not isinstance(declaration, str)
+    }
+    name = RUN_TOOL if step.run is not None else SCRIPT_TOOL
+    return {"name": name, "inputs": inputs, "outputs": outputs}
+
+
+def _with_declaration(
+    step_id: str, key: str, value: Any, types: edges.Types
+) -> dict[str, Any] | None:
+    """The input declaration of one `with` key of a run or script step.
+
+    An empty declaration accepts any value; glow-exec checks it at runtime.
+    """
+    if value is None:
+        return None
+    site = types.table.site(step_id, ("with", key))
+    if site is not None:
+        return _declaration(types.site_type(site))
+    for python_type, json_type in _LITERAL_TYPES:
+        if isinstance(value, python_type):
+            return {"type": json_type}
+    return {}
+
+
+# bool before int: a bool is an int in Python.
+_LITERAL_TYPES: tuple[tuple[type, str], ...] = (
+    (bool, "boolean"),
+    (int, "integer"),
+    (float, "number"),
+    (str, "string"),
+    (list, "array"),
+    (dict, "object"),
+)
+
+
+def _declaration(glow_type: GlowType) -> dict[str, Any]:
+    match glow_type:
+        case File() | Bundle() | Group():
+            return {"type": glow_type.kind}
+        case Array():
+            return {"type": "array"}
+        case Scalar(schema) if str(schema.get("type")) in _JSON_TYPES:
+            return {"type": schema["type"]}
+    return {}
 
 
 def _tool_identity(resolved: ResolvedTool) -> glow_ir.ToolIdentity:
