@@ -1,0 +1,79 @@
+#!/usr/bin/env python3
+"""prescient.render_from_color_table: STAC render extension entries from a color table.
+
+The color table is the gdaldem format: one "value r g b [a]" row per line,
+separated by spaces, tabs or commas, with '#' comments. Rows whose value is
+"nv" (the raster's nodata color) are skipped. The render rescales values
+from the lowest to the highest row onto 0..255 and maps each of the 256
+steps to a color interpolated linearly between rows, as gdaldem does. That
+is the colormap form tilers such as TiTiler accept. Writes `renders` to
+/work/outputs.json.
+"""
+
+import json
+import os
+import re
+import sys
+from itertools import pairwise
+from pathlib import Path
+from typing import Any, NoReturn
+
+WORK = Path(os.environ.get("GLOW_WORK_DIR", "/work"))
+SEPARATORS = re.compile(r"[\s,]+")
+STEPS = 256
+
+
+def fail(message: str) -> NoReturn:
+    sys.exit(f"prescient.render_from_color_table: {message}")
+
+
+def parse_row(line: str, number: int) -> tuple[float, list[int]] | None:
+    fields = SEPARATORS.split(line.split("#", 1)[0].strip())
+    if fields == [""] or fields[0].lower() == "nv":
+        return None
+    try:
+        value = float(fields[0])
+        color = [int(field) for field in fields[1:]]
+    except ValueError:
+        fail(f"line {number}: expected 'value r g b [a]' with numbers, got {line.strip()!r}")
+    if len(color) not in (3, 4) or not all(0 <= c <= 255 for c in color):
+        fail(f"line {number}: expected 3 or 4 color components from 0 to 255")
+    return value, color if len(color) == 4 else [*color, 255]
+
+
+def read_table(path: Path) -> list[tuple[float, list[int]]]:
+    rows = [parse_row(line, n) for n, line in enumerate(path.read_text().splitlines(), 1)]
+    table = sorted(row for row in rows if row is not None)
+    if len(table) < 2 or table[0][0] == table[-1][0]:
+        fail("the color table needs at least two rows with different values")
+    return table
+
+
+def color_at(table: list[tuple[float, list[int]]], value: float) -> list[int]:
+    for (low, low_color), (high, high_color) in pairwise(table):
+        if value <= high:
+            share = 0.0 if high == low else (value - low) / (high - low)
+            return [round(a + (b - a) * share) for a, b in zip(low_color, high_color, strict=True)]
+    return table[-1][1]
+
+
+def render(table: list[tuple[float, list[int]]], asset: str) -> dict[str, Any]:
+    low, high = table[0][0], table[-1][0]
+    colormap = {
+        str(step): color_at(table, low + (high - low) * step / (STEPS - 1)) for step in range(STEPS)
+    }
+    return {"assets": [asset], "rescale": [[low, high]], "colormap": colormap}
+
+
+def main() -> None:
+    inputs = json.loads((WORK / "inputs.json").read_text())
+    for key in ("asset", "name"):
+        if not isinstance(inputs.get(key), str) or not inputs[key]:
+            fail(f"{key} must be a non-empty string")
+    table = read_table(Path(inputs["color_table"]))
+    renders = {inputs["name"]: render(table, inputs["asset"])}
+    (WORK / "outputs.json").write_text(json.dumps({"renders": renders}))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""gdal.translate: convert a raster with gdal_translate.
+
+Reads /work/inputs.json and writes /work/out/out.<ext>, where the extension
+follows `format`. See docs/toolpacks.md for the tool contract.
+"""
+
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+WORK = Path(os.environ.get("GLOW_WORK_DIR", "/work"))
+# glow-exec collects fixed paths only; .aux.xml sidecars would be clutter in
+# /work/out/ and, for gdalinfo -stats, writes into /work/in/.
+NO_SIDECARS = ["--config", "GDAL_PAM_ENABLED", "NO"]
+EXTENSIONS = {"COG": "tif", "GTiff": "tif", "PNG": "png"}
+# Names end up inside a GDAL connection string, so keep them to plain tokens.
+SUBDATASET = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.\-/]*$")
+OPTION_KEY = re.compile(r"^[A-Za-z0-9_]+$")
+
+
+def gdal_path(source: str) -> str:
+    """Map an s3:// URI to GDAL's /vsis3/ handler; other values are paths."""
+    if source.startswith("s3://"):
+        return "/vsis3/" + source.removeprefix("s3://")
+    return source
+
+
+def source_name(source: str, subdataset: str | None) -> str:
+    if subdataset is None:
+        return gdal_path(source)
+    if not SUBDATASET.match(subdataset):
+        sys.exit(f"gdal.translate: invalid subdataset {subdataset!r}")
+    if '"' in source:
+        sys.exit("gdal.translate: source must not contain '\"' when subdataset is set")
+    return f'NETCDF:"{gdal_path(source)}":{subdataset}'
+
+
+def creation_flags(options: dict[str, str]) -> list[str]:
+    flags = []
+    for key, value in options.items():
+        if not OPTION_KEY.match(key) or not isinstance(value, str) or "\n" in value:
+            sys.exit(f"gdal.translate: invalid creation option {key!r}")
+        flags += ["-co", f"{key}={value}"]
+    return flags
+
+
+def main() -> None:
+    inputs = json.loads((WORK / "inputs.json").read_text())
+    fmt = inputs.get("format", "COG")
+    if fmt not in EXTENSIONS:
+        sys.exit(f"gdal.translate: unsupported format {fmt!r}")
+    out_dir = WORK / "out"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    command = [
+        "gdal_translate",
+        *NO_SIDECARS,
+        "-of",
+        fmt,
+        *creation_flags(inputs.get("creation_options") or {}),
+        source_name(inputs["source"], inputs.get("subdataset")),
+        str(out_dir / f"out.{EXTENSIONS[fmt]}"),
+    ]
+    sys.exit(subprocess.run(command, check=False).returncode)
+
+
+if __name__ == "__main__":
+    main()

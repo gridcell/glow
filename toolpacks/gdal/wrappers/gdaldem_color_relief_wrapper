@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""gdal.dem.color_relief: colorize a single-band raster with a color table.
+
+gdaldem color-relief writes an RGBA GeoTIFF to a temporary directory, then
+gdal_translate converts it to `format` and applies the optional `size`.
+Writes /work/out/out.<ext>. See docs/toolpacks.md for the tool contract.
+"""
+
+import json
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+WORK = Path(os.environ.get("GLOW_WORK_DIR", "/work"))
+# glow-exec collects fixed paths only; .aux.xml sidecars would be clutter in
+# /work/out/ and, for gdalinfo -stats, writes into /work/in/.
+NO_SIDECARS = ["--config", "GDAL_PAM_ENABLED", "NO"]
+EXTENSIONS = {"PNG": "png", "GTiff": "tif", "COG": "tif"}
+
+
+def gdal_path(source: str) -> str:
+    """Map an s3:// URI to GDAL's /vsis3/ handler; other values are paths."""
+    if source.startswith("s3://"):
+        return "/vsis3/" + source.removeprefix("s3://")
+    return source
+
+
+def size_flags(size: list[int] | None) -> list[str]:
+    if size is None:
+        return []
+    valid = len(size) == 2 and all(isinstance(n, int) and n >= 0 for n in size)
+    if not valid or size == [0, 0]:
+        sys.exit(f"gdal.dem.color_relief: size must be [width, height], not both 0: {size!r}")
+    return ["-outsize", str(size[0]), str(size[1])]
+
+
+def run(command: list[str]) -> None:
+    status = subprocess.run(command, check=False).returncode
+    if status != 0:
+        sys.exit(status)
+
+
+def main() -> None:
+    inputs = json.loads((WORK / "inputs.json").read_text())
+    fmt = inputs.get("format", "PNG")
+    if fmt not in EXTENSIONS:
+        sys.exit(f"gdal.dem.color_relief: unsupported format {fmt!r}")
+    resize = size_flags(inputs.get("size"))
+    out_dir = WORK / "out"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        relief = str(Path(tmp) / "relief.tif")
+        run(
+            [
+                "gdaldem",
+                "color-relief",
+                "-alpha",
+                gdal_path(inputs["source"]),
+                inputs["color_table"],
+                relief,
+            ]
+        )
+        out = str(out_dir / f"out.{EXTENSIONS[fmt]}")
+        run(["gdal_translate", *NO_SIDECARS, "-of", fmt, *resize, relief, out])
+
+
+if __name__ == "__main__":
+    main()

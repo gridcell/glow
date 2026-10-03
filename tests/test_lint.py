@@ -33,7 +33,12 @@ def manifest_text(image: str = f"ghcr.io/x/pack@{DIGEST}", tools: str = "") -> s
 def test_committed_manifests_pass() -> None:
     code, stdout, stderr = lint(*MANIFESTS)
     assert code == 0, stderr
-    assert stderr == ""
+    # The committed manifests use local images until the images are published.
+    assert stderr.splitlines() == [
+        f"{path}: warning: $.image: local/{path.parent.name}:dev is a local development image; "
+        "the compiler refuses it unless --allow-local-images is passed"
+        for path in MANIFESTS
+    ]
     assert stdout.splitlines() == [f"ok: {path}" for path in MANIFESTS]
 
 

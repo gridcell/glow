@@ -46,8 +46,16 @@ uv run glow toolpack lock           # rewrite toolpacks/registry.lock.yaml
 uv run glow toolpack lock --check   # exit 1 if the lock is out of date
 ```
 
+Build the toolpack images and run the wrapper tests inside them (needs
+docker):
+
+```bash
+make images        # local/gdal:dev, local/stac:dev, local/prescient:dev
+make images-test
+```
+
 See [docs/toolpacks.md](docs/toolpacks.md) for the toolpack layout,
-versioning and the tool contract.
+versioning, the tool contract and the images.
 
 The step runtime, glow-exec, is a Go binary in `glow-exec/`. See
 [docs/glow-exec.md](docs/glow-exec.md) for its parameters and behavior.
@@ -62,7 +70,8 @@ The step runtime, glow-exec, is a Go binary in `glow-exec/`. See
 | `src/glow/registry.py` | Resolves `uses:` references through the lock file |
 | `src/glow/builtins/` | Built-in tools (`fs.group`, `fs.glob`) |
 | `examples/` | Example workflows |
-| `toolpacks/` | Toolpack manifests (`gdal`, `stac`, `prescient`) and `registry.lock.yaml` |
+| `toolpacks/` | Toolpack manifests, Dockerfiles and wrappers (`gdal`, `stac`, `prescient`), `registry.lock.yaml`, and the image tests in `toolpacks/tests/` |
+| `Makefile`, `scripts/images_lock.py` | Build, test, push and pin the toolpack images |
 | `docs/decisions.md` | Adopted design decisions |
 | `docs/toolpacks.md` | Toolpack layout, naming, versioning and tool contract |
 | `docs/glow-exec.md` | The glow-exec step runtime |

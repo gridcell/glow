@@ -23,15 +23,29 @@ def registry() -> Registry:
     return Registry.load(TOOLPACKS)
 
 
+def pin_gdal_digest(toolpacks: Path) -> None:
+    """Point the gdal manifest at a digest image and regenerate the lock."""
+    path = toolpacks / "gdal/manifest.yaml"
+    text = path.read_text()
+    image_line = next(line for line in text.splitlines() if line.startswith("image:"))
+    path.write_text(text.replace(image_line, f"image: ghcr.io/sparkgeo/glow-gdal@{DIGEST}"))
+    write_lock(toolpacks)
+
+
 def test_resolve_manifest_tool(registry: Registry) -> None:
     resolved = registry.resolve("gdal.translate@1")
     assert resolved.tool.name == "gdal.translate"
     assert resolved.toolpack == "gdal"
+    assert resolved.manifest_sha256 == load_manifest(TOOLPACKS / "gdal/manifest.yaml").sha256
+    assert not resolved.builtin
+
+
+def test_resolve_digest_image(toolpacks: Path) -> None:
+    pin_gdal_digest(toolpacks)
+    resolved = Registry.load(toolpacks).resolve("gdal.translate@1")
     assert resolved.image == "ghcr.io/sparkgeo/glow-gdal"
     assert resolved.digest == DIGEST
     assert resolved.image_ref == f"ghcr.io/sparkgeo/glow-gdal@{DIGEST}"
-    assert resolved.manifest_sha256 == load_manifest(TOOLPACKS / "gdal/manifest.yaml").sha256
-    assert not resolved.builtin
     assert not resolved.is_local
 
 
@@ -109,6 +123,7 @@ def test_load_fails_on_stale_lock(toolpacks: Path) -> None:
 
 
 def test_load_fails_on_hand_edited_digest(toolpacks: Path) -> None:
+    pin_gdal_digest(toolpacks)
     path = lock_path(toolpacks)
     path.write_text(path.read_text().replace(DIGEST, "sha256:" + "1" * 64, 1))
     with pytest.raises(LockError, match="does not match"):
@@ -144,13 +159,8 @@ def test_lock_rejects_symlink_out_of_root(toolpacks: Path, tmp_path: Path) -> No
         Registry.load(toolpacks)
 
 
-def test_local_image_resolves_without_digest(toolpacks: Path) -> None:
-    path = toolpacks / "stac/manifest.yaml"
-    text = path.read_text()
-    image_line = next(line for line in text.splitlines() if line.startswith("image:"))
-    path.write_text(text.replace(image_line, "image: local/stac:dev"))
-    write_lock(toolpacks)
-    resolved = Registry.load(toolpacks).resolve("stac.item@1")
+def test_local_image_resolves_without_digest(registry: Registry) -> None:
+    resolved = registry.resolve("stac.item@1")
     assert resolved.is_local
     assert resolved.digest is None
     assert resolved.image_ref == "local/stac:dev"

@@ -14,10 +14,17 @@ toolpacks/
   registry.lock.yaml        # generated; maps tool@major to manifest, image and digest
   gdal/
     manifest.yaml
+    Dockerfile
+    wrappers/               # one script per tool, copied to /usr/local/bin
   stac/
     manifest.yaml
+    Dockerfile
+    requirements.in         # pinned Python dependencies of the image
+    requirements.txt        # generated with hashes from requirements.in
+    wrappers/
   prescient/
-    manifest.yaml
+    manifest.yaml           # no image yet; its tool ships in the stac image
+  tests/                    # wrapper tests that run inside the built images
 ```
 
 Each directory under `toolpacks/` holds one `manifest.yaml`. The registry
@@ -137,6 +144,64 @@ Rules for tools:
 - An input with `remote: true` can receive a URI instead of a staged path
   when the step sets `staging: none`. The tool must then read the URI
   directly, for example through GDAL `/vsis3/`.
+
+## Images and wrappers
+
+Each tool's `command` is a wrapper script in the image. The wrapper reads
+`/work/inputs.json`, maps the inputs to the flags of the underlying program,
+and writes the outputs. The manifest stays declarative. Wrappers read
+`GLOW_WORK_DIR` (default `/work`). glow-exec gives the tool a minimal
+environment, so a wrapper must not depend on `ENV` values from the
+Dockerfile. Images run as the non-root user `glow`.
+
+| Image | Base | Tools |
+| --- | --- | --- |
+| `glow-gdal` | `ghcr.io/osgeo/gdal:ubuntu-full`, pinned by digest. `ubuntu-small` has no netCDF driver. | `gdal.translate`, `gdal.dem.color_relief`, `gdal.info` |
+| `glow-stac` | `python:3.12-slim`, pinned by digest, with pystac and rasterio | `stac.item`, `stac.publish`, `prescient.render_from_color_table` |
+
+Tool behavior that the manifests do not show:
+
+- `gdal.translate` reads `subdataset` as `NETCDF:"<source>":<subdataset>`.
+  Each `creation_options` entry becomes `-co KEY=VALUE`.
+- `gdal.dem.color_relief` runs `gdaldem color-relief -alpha`, then
+  `gdal_translate` to `format`. `size` becomes `-outsize`; a 0 keeps the
+  aspect ratio.
+- `stac.item` writes a STAC 1.0 item to `item.json`. Assets come from
+  `assets` (a map) and `asset_entries` (a list of assets with a `key`). An
+  entry replaces an asset with the same key. An `href` can be a resolved
+  file, whose media type becomes the asset `type`. The bbox and geometry
+  come from the first asset that is a local georeferenced raster. The tool
+  has no storage credentials, so an `s3://` href gives no footprint.
+  `extensions.render` becomes the `renders` property.
+- `stac.publish` writes each item to `<dest>/<collection>/<item-id>.json`
+  and replaces an older copy. Then it rebuilds
+  `<dest>/<collection>/items.json`, a GeoJSON FeatureCollection of all items
+  in that directory. `dest` and the items must be local paths or `file://`
+  URIs. S3 and pgSTAC destinations are not supported yet.
+- `prescient.render_from_color_table` reads a gdaldem color table. The
+  render rescales the table's value range onto 0..255 and has a 256-entry
+  `colormap` interpolated between rows. Rows with value `nv` are skipped;
+  percentages and color names are refused.
+
+Build and test the images with docker:
+
+```bash
+make images        # local/gdal:dev, local/stac:dev and local/prescient:dev
+make images-test   # toolpacks/tests, run inside the images
+```
+
+`make images` also builds glow-exec and, when their Dockerfiles exist, the
+engine and sandbox images. The committed manifests use the local images, so
+`glow toolpack lint` warns and the lock has `digest: null`. To pin published
+digests, push the images and rewrite the manifests and the lock:
+
+```bash
+make images-push REGISTRY=ghcr.io/sparkgeo
+make images-lock REGISTRY=ghcr.io/sparkgeo
+```
+
+To change the stac image dependencies, edit `requirements.in` and run the
+`uv pip compile` command at the top of that file.
 
 ## Built-ins
 
