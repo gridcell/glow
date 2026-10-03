@@ -1,0 +1,40 @@
+# Exercises the local runner: a top-level step, a for_each block with one
+# item per name, fan-in of the block output into a consumer, and an `if`
+# that skips a step unless `extra` is true.
+name: fake-pipeline
+inputs:
+  names: { type: array, description: "One block item per name" }
+  greeting: { type: string, default: hello }
+  extra: { type: boolean, default: false }
+steps:
+  - id: header
+    uses: fake.write@1
+    with:
+      text: ${{ inputs.greeting }}
+      name: header
+  - id: per_name
+    for_each: ${{ inputs.names }}
+    as: who
+    max_parallelism: 2
+    steps:
+      - id: line
+        uses: fake.write@1
+        with:
+          text: ${{ inputs.greeting }} ${{ who }}
+          name: ${{ who }}
+      - id: copy
+        uses: fake.copy@1
+        with:
+          source: ${{ steps.line.outputs.result }}
+    outputs:
+      lines: ${{ steps.copy.outputs.result }}
+  - id: joined
+    uses: fake.concat@1
+    with:
+      parts: ${{ steps.per_name.outputs.lines }}
+  - id: extra
+    if: ${{ inputs.extra }}
+    uses: fake.write@1
+    with:
+      text: extra
+      name: extra

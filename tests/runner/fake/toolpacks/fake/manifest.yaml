@@ -1,0 +1,38 @@
+# Fake toolpack for the runner tests: busybox and three shell wrappers, so
+# the end-to-end test does not depend on GDAL. tests/runner/conftest.py
+# builds toolpacks/fake/Dockerfile as local/fake:dev.
+toolpack: fake
+version: 1
+image: local/fake:dev
+tools:
+  - name: fake.write
+    description: Write `text` and a newline to <name>.txt.
+    inputs:
+      text: { type: string, description: Text to write. }
+      name: { type: string, description: File name without the .txt extension. }
+    required: [text, name]
+    outputs:
+      result: { type: file, media_type: text/plain, description: The written file. }
+    command: [/usr/local/bin/write.sh]
+
+  - name: fake.copy
+    description: Copy a text file, keeping its basename.
+    inputs:
+      source: { type: file, media_type: text/plain, description: File to copy. }
+    required: [source]
+    outputs:
+      result: { type: file, media_type: text/plain, description: The copy. }
+    command: [/usr/local/bin/copy.sh]
+
+  - name: fake.concat
+    description: Concatenate text files in the order given.
+    inputs:
+      parts:
+        type: array
+        items: { type: file, media_type: text/plain }
+        description: Files to join, read from their URIs as stac.publish reads items.
+    required: [parts]
+    outputs:
+      result: { type: file, path: joined.txt, media_type: text/plain, description: Joined text. }
+      count: { type: integer, description: Number of files joined. }
+    command: [/usr/local/bin/concat.sh]

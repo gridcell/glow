@@ -1,0 +1,6 @@
+# gdaldem color table for the SST fixtures: value (degrees C) r g b.
+nv 0 0 0 0
+0 49 54 149
+10 116 173 209
+20 254 224 144
+30 215 48 39

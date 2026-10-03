@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from glow import ir
-from glow.types import Bundle, File, GlowType, Group, Scalar
+from glow.types import Array, Bundle, File, GlowType, Group, Scalar
 
 _JSON_TYPES: Mapping[str, type | tuple[type, ...]] = {
     "integer": int,
@@ -107,6 +107,8 @@ def _parse(glow_type: GlowType, text: str, cwd: Path) -> Any:
     if _is_uri(glow_type):
         return _location(text, cwd)
     json_type = glow_type.schema.get("type") if isinstance(glow_type, Scalar) else None
+    if isinstance(glow_type, Array):
+        json_type = "array"
     if json_type == "string":
         return text
     expected = _JSON_TYPES.get(str(json_type))
@@ -119,7 +121,7 @@ def _parse(glow_type: GlowType, text: str, cwd: Path) -> Any:
     if expected is not None and (
         not isinstance(value, expected) or (json_type != "boolean" and isinstance(value, bool))
     ):
-        raise InputError(f"{text!r} is not a {json_type}")
+        raise InputError(f"{text!r} is not a valid {json_type}")
     return value
 
 
