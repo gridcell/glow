@@ -1,0 +1,77 @@
+{
+  "description": "Expression cases shared by the Go evaluator (glow-exec eval) and the Python evaluator. Each case evaluates either a bare CEL `expression` or a `template` string with ${{ }} spans against `env`, whose top-level keys are the variables. A case expects either a JSON `result` or an `error`. Timestamps are RFC 3339 strings in UTC.",
+  "env": {
+    "sst": {
+      "inputs": {
+        "source": "s3://bucket/raw/",
+        "dest": "s3://bucket/stac/",
+        "collection": "sst",
+        "color_table": {
+          "uri": "s3://bucket/config/sst.txt",
+          "path": "s3://bucket/config/sst.txt",
+          "media_type": "text/plain",
+          "kind": "file"
+        }
+      },
+      "g": {
+        "key": "20240105",
+        "captures": { "date": "20240105" },
+        "files": [
+          {
+            "uri": "s3://bucket/raw/sst_20240105.nc",
+            "path": "s3://bucket/raw/sst_20240105.nc",
+            "media_type": "application/x-netcdf",
+            "kind": "file"
+          }
+        ]
+      },
+      "steps": {
+        "cog": {
+          "outputs": {
+            "result": {
+              "uri": "s3://bucket/runs/r1/cog/result/out.tif",
+              "path": "s3://bucket/runs/r1/cog/result/out.tif",
+              "media_type": "image/tiff; application=geotiff; profile=cloud-optimized",
+              "kind": "file"
+            }
+          },
+          "skipped": false
+        },
+        "render": {
+          "outputs": { "renders": { "sst": { "assets": ["data"], "colormap_name": "sst" } } },
+          "skipped": false
+        },
+        "count": { "outputs": { "total": 3 }, "skipped": false }
+      }
+    }
+  },
+  "cases": [
+    { "name": "sst_group_file_path", "env": "sst", "expression": "g.files[0].path", "result": "s3://bucket/raw/sst_20240105.nc" },
+    { "name": "sst_upstream_file", "env": "sst", "expression": "steps.cog.outputs.result", "result": { "uri": "s3://bucket/runs/r1/cog/result/out.tif", "path": "s3://bucket/runs/r1/cog/result/out.tif", "media_type": "image/tiff; application=geotiff; profile=cloud-optimized", "kind": "file" } },
+    { "name": "sst_workflow_input", "env": "sst", "expression": "inputs.source", "result": "s3://bucket/raw/" },
+    { "name": "sst_item_id", "env": "sst", "template": "sst-${{ g.key }}", "result": "sst-20240105" },
+    { "name": "sst_datetime", "env": "sst", "expression": "date(g.key, '%Y%m%d')", "result": "2024-01-05T00:00:00Z" },
+    { "name": "sst_renders", "env": "sst", "expression": "steps.render.outputs.renders", "result": { "sst": { "assets": ["data"], "colormap_name": "sst" } } },
+    { "name": "if_count_positive", "env": "sst", "expression": "steps.count.outputs.total > 0", "result": true },
+    { "name": "template_embeds_int_as_json", "env": "sst", "template": "n=${{ steps.count.outputs.total }}", "result": "n=3" },
+    { "name": "template_whole_value_keeps_type", "env": "sst", "template": "${{ steps.count.outputs.total }}", "result": 3 },
+    { "name": "size_of_group", "env": "sst", "expression": "size(g.files)", "result": 1 },
+    { "name": "date_with_time", "env": "sst", "expression": "date('2024-02-29 13:05:09', '%Y-%m-%d %H:%M:%S')", "result": "2024-02-29T13:05:09Z" },
+    { "name": "date_day_of_year", "env": "sst", "expression": "date('2024-060', '%Y-%j')", "result": "2024-02-29T00:00:00Z" },
+    { "name": "date_invalid_day", "env": "sst", "expression": "date('20230229', '%Y%m%d')", "error": "not a valid date" },
+    { "name": "date_format_mismatch", "env": "sst", "expression": "date('2024-01-05', '%Y%m%d')", "error": "does not match format" },
+    { "name": "path_basename_uri", "env": "sst", "expression": "path.basename(g.files[0].uri)", "result": "sst_20240105.nc" },
+    { "name": "path_basename_trailing_slash", "env": "sst", "expression": "path.basename(inputs.source)", "result": "raw" },
+    { "name": "path_stem", "env": "sst", "expression": "path.stem('s3://b/a/scene.tar.gz')", "result": "scene.tar" },
+    { "name": "path_ext", "env": "sst", "expression": "path.ext('s3://b/a/scene.tar.gz')", "result": ".gz" },
+    { "name": "path_ext_hidden_file", "env": "sst", "expression": "path.ext('/a/.env')", "result": "" },
+    { "name": "path_join", "env": "sst", "expression": "path.join(inputs.dest, 'items/' + g.key + '.json')", "result": "s3://bucket/stac/items/20240105.json" },
+    { "name": "media_matches_refinement", "env": "sst", "expression": "media.matches(steps.cog.outputs.result.media_type, 'image/tiff; application=geotiff')", "result": true },
+    { "name": "media_matches_other_type", "env": "sst", "expression": "media.matches('image/png', 'image/tiff')", "result": false },
+    { "name": "media_matches_wildcard", "env": "sst", "expression": "media.matches('image/png', '*')", "result": true },
+    { "name": "media_ext", "env": "sst", "expression": "media.ext(steps.cog.outputs.result.media_type)", "result": "tif" },
+    { "name": "media_ext_unknown", "env": "sst", "expression": "media.ext('application/x-unknown')", "error": "no extension known" },
+    { "name": "missing_step", "env": "sst", "expression": "steps.thumb.outputs.result", "error": "no such key" },
+    { "name": "basename_of_int", "env": "sst", "expression": "path.basename(steps.count.outputs.total)", "error": "no such overload" }
+  ]
+}

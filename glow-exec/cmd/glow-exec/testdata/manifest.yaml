@@ -1,0 +1,30 @@
+# Fake toolpack for the end-to-end tests. The commands are shell scripts in
+# this directory; the tests pass them after `--`.
+toolpack: fake
+version: 1
+image: local/fake:dev
+tools:
+  - name: fake.write
+    description: Write a text file at a fixed path and report its line count.
+    inputs:
+      message: { type: string }
+      format: { type: string, enum: [TXT, CSV], default: TXT }
+    required: [message]
+    outputs:
+      result:
+        type: file
+        path: out.{ext}
+        media_type_from: format
+        media_types: { TXT: text/plain, CSV: text/csv }
+      lines: { type: integer }
+    command: [write.sh]
+
+  - name: fake.copy
+    description: Copy a text file and report the copy's path in outputs.json.
+    inputs:
+      source: { type: file, media_type: [text/plain, text/csv] }
+      label: { type: string }
+    required: [source]
+    outputs:
+      copy: { type: file, media_type: text/plain }
+    command: [copy.sh]

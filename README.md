@@ -49,6 +49,9 @@ uv run glow toolpack lock --check   # exit 1 if the lock is out of date
 See [docs/toolpacks.md](docs/toolpacks.md) for the toolpack layout,
 versioning and the tool contract.
 
+The step runtime, glow-exec, is a Go binary in `glow-exec/`. See
+[docs/glow-exec.md](docs/glow-exec.md) for its parameters and behavior.
+
 ## Layout
 
 | Path | Content |
@@ -62,6 +65,9 @@ versioning and the tool contract.
 | `toolpacks/` | Toolpack manifests (`gdal`, `stac`, `prescient`) and `registry.lock.yaml` |
 | `docs/decisions.md` | Adopted design decisions |
 | `docs/toolpacks.md` | Toolpack layout, naming, versioning and tool contract |
+| `docs/glow-exec.md` | The glow-exec step runtime |
+| `glow-exec/` | The glow-exec Go module |
+| `tests/fixtures/expressions/` | Expression cases shared by the Go and Python evaluators |
 
 ## Workflow syntax
 
