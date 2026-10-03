@@ -35,6 +35,9 @@ class Code(StrEnum):
     IF_NOT_BOOLEAN = "GLOW-E032"
     EXPRESSION_TYPE_ERROR = "GLOW-E033"
     REGISTRY_UNAVAILABLE = "GLOW-E040"
+    NOT_YET_SUPPORTED = "GLOW-E050"
+    LOCAL_IMAGE = "GLOW-E051"
+    NAME_COLLISION = "GLOW-E052"
 
 
 @dataclass(frozen=True, slots=True)

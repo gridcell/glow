@@ -107,6 +107,7 @@ class Loop(StrictModel):
     """The scope a for_each step opens."""
 
     variable: str
+    operand: str | list[Any] = Field(description="The for_each value as written.")
     over: TypeRef
     item: TypeRef
     max_parallelism: int | None = None
@@ -117,17 +118,33 @@ class Step(StrictModel):
     kind: StepKind
     parent: str | None = Field(description="The enclosing for_each block, if any.")
     tool: ToolIdentity | None = None
+    tool_spec: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "The tool spec glow-exec checks the step against: the manifest tool for uses, "
+            "a synthesized spec for run and script. None for a block."
+        ),
+    )
+    raw_with: dict[str, Any] = Field(
+        default_factory=dict, description="The `with` block as written, expressions unevaluated."
+    )
+    run: str | None = Field(default=None, description="The inline bash script of a run step.")
+    script: str | None = Field(default=None, description="The inline Python script.")
     depends_on: list[str] = Field(description="Sibling steps whose outputs this step uses.")
     loop: Loop | None = None
     let: dict[str, TypeRef] = Field(default_factory=dict)
     outputs: dict[str, TypeRef] = Field(
         default_factory=dict, description="Output types as later steps see them."
     )
+    block_outputs: dict[str, str] = Field(
+        default_factory=dict, description="A block's output expressions, by output name."
+    )
     condition: str | None = Field(default=None, description="The `if` expression.")
     staging: Staging = "copy"
     resources: Resources | None = None
     timeout: int | str | None = None
     retries: int | None = None
+    secrets: list[str] = Field(default_factory=list)
 
 
 class Workflow(StrictModel):
@@ -135,6 +152,9 @@ class Workflow(StrictModel):
 
     name: str
     inputs: dict[str, TypeRef]
+    defaults: dict[str, Any] = Field(
+        default_factory=dict, description="Default values of the inputs that declare one."
+    )
     steps: list[Step]
     edges: list[Edge]
 

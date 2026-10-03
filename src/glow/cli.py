@@ -5,6 +5,14 @@ from typing import Annotated
 
 import typer
 
+from glow.compile import CompileError, CompileOptions, compile_workflow, to_yaml
+from glow.compile.argo import (
+    DEFAULT_ENGINE_IMAGE,
+    DEFAULT_GLOW_EXEC_IMAGE,
+    DEFAULT_RUN_PREFIX,
+    DEFAULT_SANDBOX_IMAGE,
+    DEFAULT_SERVICE_ACCOUNT,
+)
 from glow.lint import lint_manifest
 from glow.lock import LockError, lock_is_current, lock_path, write_lock
 from glow.manifests import ManifestError
@@ -67,6 +75,66 @@ def plan(
         typer.echo(f"error: {file} is a {report.kind}, not a workflow", err=True)
         raise typer.Exit(1)
     typer.echo(report.ir.model_dump_json(indent=2) if as_json else render_plan(report.ir))
+
+
+@app.command()
+def compile(
+    file: Annotated[Path, typer.Argument(help="Workflow file (YAML).")],
+    output: Annotated[
+        Path | None, typer.Option("-o", "--output", help="Write the YAML here, not to stdout.")
+    ] = None,
+    toolpacks: ToolpacksOption = DEFAULT_TOOLPACKS,
+    namespace: Annotated[str | None, typer.Option(help="Namespace of the Workflow.")] = None,
+    service_account: Annotated[
+        str, typer.Option(help="Service account the step pods run as.")
+    ] = DEFAULT_SERVICE_ACCOUNT,
+    run_prefix: Annotated[
+        str, typer.Option(help="Where step outputs go: s3:// URI, file:// URI or absolute path.")
+    ] = DEFAULT_RUN_PREFIX,
+    glow_exec_image: Annotated[
+        str, typer.Option(help="Image holding the glow-exec binary.")
+    ] = DEFAULT_GLOW_EXEC_IMAGE,
+    engine_image: Annotated[
+        str, typer.Option(help="Image that runs built-in steps.")
+    ] = DEFAULT_ENGINE_IMAGE,
+    sandbox_image: Annotated[
+        str, typer.Option(help="Image that runs run and script steps.")
+    ] = DEFAULT_SANDBOX_IMAGE,
+    allow_local_images: Annotated[
+        bool,
+        typer.Option(help="Accept toolpack images without a digest (local development)."),
+    ] = False,
+) -> None:
+    """Validate a workflow and compile it to an Argo Workflow."""
+    try:
+        options = CompileOptions(
+            namespace=namespace,
+            service_account=service_account,
+            run_prefix=run_prefix,
+            glow_exec_image=glow_exec_image,
+            engine_image=engine_image,
+            sandbox_image=sandbox_image,
+            allow_local_images=allow_local_images,
+        )
+    except ValueError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    report = _report(file, toolpacks)
+    if report.ir is None:
+        typer.echo(f"error: {file} is a {report.kind}, not a workflow", err=True)
+        raise typer.Exit(1)
+    try:
+        text = to_yaml(compile_workflow(report.ir, options))
+    except CompileError as exc:
+        for error in exc.errors:
+            typer.echo(error.render(), err=True)
+        typer.echo(f"{file}: {len(exc.errors)} problem(s) found", err=True)
+        raise typer.Exit(1) from exc
+    if output is None:
+        typer.echo(text, nl=False)
+        return
+    output.write_text(text)
+    typer.echo(f"wrote {output}")
 
 
 @schema_app.command("export")
