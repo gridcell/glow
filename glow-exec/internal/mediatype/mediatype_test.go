@@ -43,4 +43,13 @@ func TestConsistentWithPath(t *testing.T) {
 	if !ConsistentWithPath("out.custom", "image/tiff") {
 		t.Error("unknown extensions should be accepted")
 	}
+	if !ConsistentWithPath("item.json", "application/geo+json") {
+		t.Error("json file should be consistent with a +json media type")
+	}
+	if ConsistentWithPath("item.json", "text/plain") {
+		t.Error("json file should not be consistent with text/plain")
+	}
+	if ConsistentWithPath("item.geojson", "application/json") {
+		t.Error("geojson file should not be consistent with application/json")
+	}
 }

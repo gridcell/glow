@@ -116,11 +116,17 @@ func BaseForPath(name string) string {
 
 // ConsistentWithPath reports whether a file name's extension is consistent
 // with a media type. Unknown extensions and the wildcard are accepted,
-// because the table cannot list every format a tool may produce.
+// because the table cannot list every format a tool may produce. A .json
+// file fits any +json type (RFC 6839), such as a STAC item written as
+// item.json with type application/geo+json.
 func ConsistentWithPath(name, mediaType string) bool {
 	if strings.TrimSpace(mediaType) == Any {
 		return true
 	}
 	base := BaseForPath(name)
-	return base == "" || base == Parse(mediaType).Base
+	declared := Parse(mediaType).Base
+	if base == "application/json" && strings.HasSuffix(declared, "+json") {
+		return true
+	}
+	return base == "" || base == declared
 }
