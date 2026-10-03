@@ -1,13 +1,14 @@
-# STAC toolpack. The image digest is a placeholder until the toolpack images
-# are built and published (issue 10).
+# STAC toolpack, built from toolpacks/stac/Dockerfile by `make images`.
+# The local image becomes a digest reference with `make images-lock`.
 toolpack: stac
 version: 1 # major version: workflows use <tool>@1
-image: ghcr.io/sparkgeo/glow-stac@sha256:0000000000000000000000000000000000000000000000000000000000000000
+image: local/stac:dev
 tools:
   - name: stac.item
     description: >-
-      Build one STAC item from asset hrefs. Geometry and bbox come from the
-      first asset with the data role.
+      Build one STAC 1.0 item from asset hrefs. Geometry and bbox come from
+      the first asset that is a local georeferenced raster, trying assets
+      with the data role first; otherwise they are null.
     inputs:
       id: { type: string, description: STAC item id. }
       datetime: { type: string, format: date-time }
@@ -17,25 +18,48 @@ tools:
         additionalProperties:
           type: object
           properties:
-            href: { type: string }
+            href:
+              type: file
+              description: Asset URI, or a resolved file whose media type sets the asset type.
+            roles: { type: array, items: { type: string } }
+            title: { type: string }
+            type: { type: string, description: Asset media type. }
+          required: [href]
+      asset_entries:
+        type: array
+        description: >-
+          Assets as a list, merged over `assets`. An entry wins over an asset
+          with the same key.
+        items:
+          type: object
+          properties:
+            key: { type: string, description: Asset key. }
+            href: { type: file }
             roles: { type: array, items: { type: string } }
             title: { type: string }
             type: { type: string }
-          required: [href]
+          required: [key, href]
       properties: { type: object, description: Extra item properties. }
-      extensions: { type: object, description: Extension objects keyed by extension name. }
-    required: [id, assets]
+      extensions:
+        type: object
+        description: >-
+          Extension values keyed by extension name. Supported: `render`, whose
+          value becomes the item's `renders` property.
+    required: [id, datetime]
     outputs:
-      item: { type: object, description: The STAC item. }
+      item: { type: file, path: item.json, media_type: application/geo+json }
     command: [stac_item_wrapper]
 
   - name: stac.publish
-    description: Upsert a collection's items in one bulk write and copy assets to dest.
+    description: >-
+      Write items as static JSON to <dest>/<collection>/<item-id>.json and
+      rebuild <dest>/<collection>/items.json, a FeatureCollection of every
+      item there. An existing item with the same id is replaced.
     inputs:
-      collection: { type: string, description: Registered collection id. }
-      items: { type: array, items: { type: object } }
-      dest: { type: string, format: uri, description: Registered location for assets. }
-    required: [collection, items]
+      collection: { type: string, description: Collection id. }
+      items: { type: array, items: { type: file, media_type: application/geo+json } }
+      dest: { type: string, format: uri, description: Local path or file:// URI of the catalog root. }
+    required: [collection, items, dest]
     outputs:
-      count: { type: integer, description: Number of items upserted. }
+      published: { type: integer, description: Number of items written. }
     command: [stac_publish_wrapper]

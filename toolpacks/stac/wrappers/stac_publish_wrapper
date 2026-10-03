@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+"""stac.publish: write a collection's items as static JSON under `dest`.
+
+Each item goes to <dest>/<collection>/<item-id>.json, replacing an older copy.
+<dest>/<collection>/items.json is then rebuilt as a GeoJSON FeatureCollection
+of every item in that directory. `dest` is a local path or file:// URI; other
+backends (S3, pgSTAC) are not supported yet. Items are read from local paths
+or file:// URIs. Writes `published` to /work/outputs.json.
+"""
+
+import json
+import os
+import re
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any, NoReturn
+
+WORK = Path(os.environ.get("GLOW_WORK_DIR", "/work"))
+INDEX = "items.json"
+# Ids become file and directory names, so they must not contain '/' or '..'.
+SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$")
+
+
+def fail(message: str) -> NoReturn:
+    sys.exit(f"stac.publish: {message}")
+
+
+def local_path(uri: str, what: str) -> Path:
+    if "://" in uri and not uri.startswith("file://"):
+        fail(f"{what} {uri!r} is not a local path or file:// URI")
+    return Path(uri.removeprefix("file://"))
+
+
+def item_uri(value: Any) -> str:
+    """An item is a path or URI, or a resolved file `{uri, ...}`."""
+    if isinstance(value, dict):
+        value = value.get("uri")
+    if not isinstance(value, str) or not value:
+        fail(f"item {value!r} is not a file reference")
+    return value
+
+
+def read_item(value: Any) -> dict[str, Any]:
+    uri = item_uri(value)
+    try:
+        item = json.loads(local_path(uri, "item").read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        fail(f"cannot read item {uri!r}: {exc}")
+    if not isinstance(item, dict) or item.get("type") != "Feature":
+        fail(f"{uri!r} is not a STAC item")
+    item_id = item.get("id")
+    if not isinstance(item_id, str) or not SAFE_ID.match(item_id):
+        fail(f"{uri!r} has an unsafe item id {item_id!r}")
+    return item
+
+
+def write_json(path: Path, document: Any) -> None:
+    """Write through a temporary file so readers never see a partial file."""
+    with tempfile.NamedTemporaryFile("w", dir=path.parent, delete=False, suffix=".tmp") as tmp:
+        json.dump(document, tmp, indent=2)
+    # NamedTemporaryFile creates the file 0600; published files are meant to be read.
+    os.chmod(tmp.name, 0o644)
+    os.replace(tmp.name, path)
+
+
+def rebuild_index(directory: Path) -> None:
+    features = [
+        json.loads(path.read_text())
+        for path in sorted(directory.glob("*.json"))
+        if path.name != INDEX
+    ]
+    write_json(directory / INDEX, {"type": "FeatureCollection", "features": features})
+
+
+def main() -> None:
+    inputs = json.loads((WORK / "inputs.json").read_text())
+    collection = inputs["collection"]
+    if not isinstance(collection, str) or not SAFE_ID.match(collection):
+        fail(f"invalid collection id {collection!r}")
+    items = [read_item(value) for value in inputs["items"]]
+    ids = [item["id"] for item in items]
+    duplicates = sorted({item_id for item_id in ids if ids.count(item_id) > 1})
+    if duplicates:
+        fail(f"duplicate item ids: {', '.join(duplicates)}")
+    if "items" in ids:
+        fail(f"item id 'items' would replace the {INDEX} index")
+    directory = local_path(inputs["dest"], "dest") / collection
+    directory.mkdir(parents=True, exist_ok=True)
+    for item in items:
+        write_json(directory / f"{item['id']}.json", item)
+    rebuild_index(directory)
+    (WORK / "outputs.json").write_text(json.dumps({"published": len(items)}))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+"""gdal.info: report raster metadata with gdalinfo -json.
+
+Writes the parsed document to /work/outputs.json as the `info` output. See
+docs/toolpacks.md for the tool contract.
+"""
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+WORK = Path(os.environ.get("GLOW_WORK_DIR", "/work"))
+# glow-exec collects fixed paths only; .aux.xml sidecars would be clutter in
+# /work/out/ and, for gdalinfo -stats, writes into /work/in/.
+NO_SIDECARS = ["--config", "GDAL_PAM_ENABLED", "NO"]
+
+
+def gdal_path(source: str) -> str:
+    """Map an s3:// URI to GDAL's /vsis3/ handler; other values are paths."""
+    if source.startswith("s3://"):
+        return "/vsis3/" + source.removeprefix("s3://")
+    return source
+
+
+def main() -> None:
+    inputs = json.loads((WORK / "inputs.json").read_text())
+    command = ["gdalinfo", *NO_SIDECARS, "-json"]
+    if inputs.get("stats", False):
+        command.append("-stats")
+    command.append(gdal_path(inputs["source"]))
+    # stderr streams through so GDAL errors reach the step log.
+    result = subprocess.run(command, check=False, stdout=subprocess.PIPE, text=True)
+    if result.returncode != 0:
+        sys.exit(result.returncode)
+    info = json.loads(result.stdout)
+    (WORK / "outputs.json").write_text(json.dumps({"info": info}))
+
+
+if __name__ == "__main__":
+    main()

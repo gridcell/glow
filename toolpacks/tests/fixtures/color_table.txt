@@ -1,0 +1,5 @@
+# Sea surface temperature in degrees Celsius: value r g b [a]
+nv 0 0 0 0
+0 0 0 255
+15 0 255 0
+30 255 0 0 255

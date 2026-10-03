@@ -1,8 +1,8 @@
-# GDAL toolpack. The image digest is a placeholder until the toolpack images
-# are built and published (issue 10).
+# GDAL toolpack, built from toolpacks/gdal/Dockerfile by `make images`.
+# The local image becomes a digest reference with `make images-lock`.
 toolpack: gdal
 version: 1 # major version: workflows use <tool>@1
-image: ghcr.io/sparkgeo/glow-gdal@sha256:0000000000000000000000000000000000000000000000000000000000000000 # digest, never a tag
+image: local/gdal:dev
 tools:
   - name: gdal.translate
     description: Convert a raster with gdal_translate. Output media type follows `format`.
@@ -15,7 +15,7 @@ tools:
           - application/x-netcdf
           - application/vnd.gdal.vrt+xml
         remote: true # may receive s3:// and read via /vsis3/
-      subdataset: { type: string }
+      subdataset: { type: string, description: 'netCDF variable, read as NETCDF:"<source>":<subdataset>.' }
       format: { type: string, enum: [COG, GTiff, PNG], default: COG }
       creation_options: { type: object, additionalProperties: { type: string } }
     required: [source]
@@ -60,7 +60,7 @@ tools:
           PNG: image/png
           GTiff: "image/tiff; application=geotiff"
           COG: "image/tiff; application=geotiff; profile=cloud-optimized"
-    command: [gdal_color_relief_wrapper]
+    command: [gdaldem_color_relief_wrapper]
 
   - name: gdal.info
     description: Report raster metadata with gdalinfo as JSON.
@@ -73,4 +73,4 @@ tools:
     required: [source]
     outputs:
       info: { type: object, description: The gdalinfo -json document. }
-    command: [gdal_info_wrapper]
+    command: [gdalinfo_wrapper]

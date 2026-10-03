@@ -157,7 +157,8 @@ Stage checks the media type of each resolved file map against the input's
 
 Collect checks each file extension against its media type with a table of
 common extensions in `internal/mediatype`. An unknown extension is accepted.
-A file output with no declared media type gets one from its extension, or
+A `.json` file fits any `+json` type, for example a STAC item `item.json`
+with type `application/geo+json`. A file output with no declared media type gets one from its extension, or
 `application/octet-stream`.
 
 ## Storage

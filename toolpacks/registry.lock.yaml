@@ -3,36 +3,36 @@ tools:
   gdal.dem.color_relief@1:
     toolpack: gdal
     manifest: gdal/manifest.yaml
-    image: ghcr.io/sparkgeo/glow-gdal
-    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
-    manifest_sha256: 8d3327a159f199f0773f832c265d26d8fc343f55b44a0fc0b1a6687ad671fc38
+    image: local/gdal:dev
+    digest: null
+    manifest_sha256: 1fbf6925c891ed7afd4b33c904b7bc92d700474a61936890b299a71a6d67f009
   gdal.info@1:
     toolpack: gdal
     manifest: gdal/manifest.yaml
-    image: ghcr.io/sparkgeo/glow-gdal
-    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
-    manifest_sha256: 8d3327a159f199f0773f832c265d26d8fc343f55b44a0fc0b1a6687ad671fc38
+    image: local/gdal:dev
+    digest: null
+    manifest_sha256: 1fbf6925c891ed7afd4b33c904b7bc92d700474a61936890b299a71a6d67f009
   gdal.translate@1:
     toolpack: gdal
     manifest: gdal/manifest.yaml
-    image: ghcr.io/sparkgeo/glow-gdal
-    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
-    manifest_sha256: 8d3327a159f199f0773f832c265d26d8fc343f55b44a0fc0b1a6687ad671fc38
+    image: local/gdal:dev
+    digest: null
+    manifest_sha256: 1fbf6925c891ed7afd4b33c904b7bc92d700474a61936890b299a71a6d67f009
   prescient.render_from_color_table@1:
     toolpack: prescient
     manifest: prescient/manifest.yaml
-    image: ghcr.io/sparkgeo/glow-prescient
-    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
-    manifest_sha256: e36f61898793a3f7b344cfc9339fba5844b6eb1a67f93b46c6d3f69dfb18fa72
+    image: local/prescient:dev
+    digest: null
+    manifest_sha256: 0a081b7b75b44670db6f142df308f9f3191dbd6a9273e6a74702e78eb2acda06
   stac.item@1:
     toolpack: stac
     manifest: stac/manifest.yaml
-    image: ghcr.io/sparkgeo/glow-stac
-    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
-    manifest_sha256: 2543a194a47288061c259bf8fc2f966800794031962b2dd006e060660b9fc53d
+    image: local/stac:dev
+    digest: null
+    manifest_sha256: 9f1e4d40a9a7769988d7f5d131a8896fd49f99c470602a9b2ee458eecea88e1d
   stac.publish@1:
     toolpack: stac
     manifest: stac/manifest.yaml
-    image: ghcr.io/sparkgeo/glow-stac
-    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
-    manifest_sha256: 2543a194a47288061c259bf8fc2f966800794031962b2dd006e060660b9fc53d
+    image: local/stac:dev
+    digest: null
+    manifest_sha256: 9f1e4d40a9a7769988d7f5d131a8896fd49f99c470602a9b2ee458eecea88e1d

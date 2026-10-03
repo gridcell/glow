@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+"""stac.item: build one STAC 1.0 item.
+
+`assets` maps asset keys to asset objects; `asset_entries` lists assets with
+a `key` each and wins over `assets` on a shared key. An asset `href` is a URI
+or a resolved file `{uri, media_type}`. The bbox and geometry come from the
+first asset that opens as a georeferenced raster, trying assets with the
+data role first. Only local paths are opened, because the tool has no
+storage credentials. Writes /work/out/item.json. See docs/toolpacks.md.
+"""
+
+import json
+import os
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any, NoReturn
+
+import pystac
+
+WORK = Path(os.environ.get("GLOW_WORK_DIR", "/work"))
+# Extension name -> (schema URI, item property that holds its value).
+EXTENSIONS = {"render": ("https://stac-extensions.github.io/render/v2.0.0/schema.json", "renders")}
+ASSET_FIELDS = ("roles", "title", "type")
+
+
+def fail(message: str) -> NoReturn:
+    sys.exit(f"stac.item: {message}")
+
+
+def asset_href(key: str, href: Any) -> tuple[str, str | None]:
+    """Return the href and, for a resolved file, its media type."""
+    if isinstance(href, str) and href:
+        return href, None
+    if isinstance(href, dict) and isinstance(href.get("uri"), str) and href["uri"]:
+        return href["uri"], href.get("media_type")
+    fail(f"asset {key!r} needs an href")
+
+
+def merged_assets(inputs: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    assets = dict(inputs.get("assets") or {})
+    for entry in inputs.get("asset_entries") or []:
+        entry = dict(entry)
+        assets[entry.pop("key")] = entry
+    if not assets:
+        fail("at least one asset is required")
+    return assets
+
+
+def to_pystac_asset(key: str, spec: dict[str, Any]) -> pystac.Asset:
+    href, media_type = asset_href(key, spec.get("href"))
+    unknown = set(spec) - {"href", *ASSET_FIELDS}
+    if unknown:
+        fail(f"asset {key!r} has unknown fields: {', '.join(sorted(unknown))}")
+    return pystac.Asset(
+        href=href,
+        title=spec.get("title"),
+        media_type=spec.get("type") or media_type,
+        roles=spec.get("roles"),
+    )
+
+
+def local_path(href: str) -> Path | None:
+    if "://" in href and not href.startswith("file://"):
+        return None
+    path = Path(href.removeprefix("file://"))
+    return path if path.is_file() else None
+
+
+def footprint(assets: dict[str, pystac.Asset]) -> tuple[dict[str, Any] | None, list[float] | None]:
+    """Geometry and bbox in WGS84 from the first readable raster asset."""
+    try:
+        import rasterio
+        from rasterio.warp import transform_bounds
+    except ImportError:
+        return None, None
+    ordered = sorted(assets.values(), key=lambda asset: "data" not in (asset.roles or []))
+    for asset in ordered:
+        path = local_path(asset.href)
+        if path is None:
+            continue
+        try:
+            with rasterio.open(path) as raster:
+                if raster.crs is None:
+                    continue
+                west, south, east, north = transform_bounds(
+                    raster.crs, "EPSG:4326", *raster.bounds, densify_pts=21
+                )
+        except rasterio.errors.RasterioError:
+            continue
+        ring = [[west, south], [east, south], [east, north], [west, north], [west, south]]
+        return {"type": "Polygon", "coordinates": [ring]}, [west, south, east, north]
+    return None, None
+
+
+def apply_extensions(item: pystac.Item, extensions: dict[str, Any]) -> None:
+    for name, value in extensions.items():
+        if name not in EXTENSIONS:
+            fail(f"unknown extension {name!r}; supported: {', '.join(EXTENSIONS)}")
+        schema, field = EXTENSIONS[name]
+        item.stac_extensions.append(schema)
+        item.properties[field] = value
+
+
+def main() -> None:
+    inputs = json.loads((WORK / "inputs.json").read_text())
+    assets = {key: to_pystac_asset(key, spec) for key, spec in merged_assets(inputs).items()}
+    geometry, bbox = footprint(assets)
+    try:
+        when = datetime.fromisoformat(inputs["datetime"].replace("Z", "+00:00"))
+    except ValueError:
+        fail(f"datetime {inputs['datetime']!r} is not RFC 3339")
+    item = pystac.Item(
+        id=inputs["id"],
+        geometry=geometry,
+        bbox=bbox,
+        datetime=when,
+        properties=dict(inputs.get("properties") or {}),
+    )
+    for key, asset in assets.items():
+        item.add_asset(key, asset)
+    apply_extensions(item, inputs.get("extensions") or {})
+    out_dir = WORK / "out"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    document = item.to_dict(include_self_link=False, transform_hrefs=False)
+    (out_dir / "item.json").write_text(json.dumps(document, indent=2))
+
+
+if __name__ == "__main__":
+    main()

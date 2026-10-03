@@ -1,16 +1,24 @@
-# Prescient toolpack. The image digest is a placeholder until the toolpack
-# images are built and published (issue 10).
+# Prescient toolpack. Until a Prescient image exists, `make images` tags the
+# glow-stac image (toolpacks/stac/Dockerfile) as local/prescient:dev, since it
+# carries render_from_color_table_wrapper.
 toolpack: prescient
 version: 1 # major version: workflows use <tool>@1
-image: ghcr.io/sparkgeo/glow-prescient@sha256:0000000000000000000000000000000000000000000000000000000000000000
+image: local/prescient:dev
 tools:
   - name: prescient.render_from_color_table
     description: Turn a color table into STAC render extension entries for one asset.
     inputs:
-      color_table: { type: file, media_type: text/plain }
+      color_table:
+        type: file
+        media_type: text/plain
+        description: gdaldem color table, one "value r g b [a]" entry per line.
       asset: { type: string, description: Asset key the render applies to. }
       name: { type: string, description: Render name. }
     required: [color_table, asset, name]
     outputs:
-      renders: { type: object, description: Render extension objects keyed by name. }
+      renders:
+        type: object
+        description: >-
+          STAC render extension objects keyed by name. The render rescales the
+          color table's value range onto 0..255 and has a 256-entry colormap.
     command: [render_from_color_table_wrapper]
