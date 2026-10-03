@@ -1,0 +1,239 @@
+{
+  "$defs": {
+    "Tool": {
+      "additionalProperties": false,
+      "description": "One tool in a toolpack. Doubles as an MCP tool definition.",
+      "properties": {
+        "command": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "description": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "inputs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ToolInput"
+          },
+          "propertyNames": {
+            "maxLength": 63,
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "type": "object"
+        },
+        "name": {
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+          "type": "string"
+        },
+        "outputs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ToolOutput"
+          },
+          "propertyNames": {
+            "maxLength": 63,
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "type": "object"
+        },
+        "required": {
+          "description": "Input names that must be set, as in JSON Schema.",
+          "items": {
+            "maxLength": 63,
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "command"
+      ],
+      "title": "Tool",
+      "type": "object"
+    },
+    "ToolInput": {
+      "additionalProperties": false,
+      "description": "One input property of a tool.",
+      "properties": {
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ToolInput"
+            },
+            {
+              "type": "boolean"
+            }
+          ]
+        },
+        "default": {},
+        "description": {
+          "type": "string"
+        },
+        "enum": {
+          "items": {},
+          "minItems": 1,
+          "type": "array"
+        },
+        "format": {
+          "type": "string"
+        },
+        "items": {
+          "$ref": "#/$defs/ToolInput"
+        },
+        "maxItems": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maximum": {
+          "type": "number"
+        },
+        "media_type": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "items": {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ]
+        },
+        "minItems": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "minimum": {
+          "type": "number"
+        },
+        "properties": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ToolInput"
+          },
+          "type": "object"
+        },
+        "remote": {
+          "description": "The tool can read this input from a URI with staging: none.",
+          "type": "boolean"
+        },
+        "required": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "type": {
+          "enum": [
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "object",
+            "array",
+            "file",
+            "bundle",
+            "group"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "ToolInput",
+      "type": "object"
+    },
+    "ToolOutput": {
+      "additionalProperties": false,
+      "description": "One declared output of a tool.\n\nA file output names its media type directly with `media_type`, or derives\nit from an input value with `media_type_from` and the `media_types` map.",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "media_type": {
+          "maxLength": 255,
+          "minLength": 1,
+          "type": "string"
+        },
+        "media_type_from": {
+          "maxLength": 63,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "type": "string"
+        },
+        "media_types": {
+          "additionalProperties": {
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "path": {
+          "description": "Fixed path relative to /work/out/; may use {ext}.",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "object",
+            "array",
+            "file",
+            "bundle",
+            "group"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "ToolOutput",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A toolpack: one container image and the tools it provides.",
+  "properties": {
+    "image": {
+      "maxLength": 512,
+      "pattern": "^[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "toolpack": {
+      "maxLength": 63,
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "type": "string"
+    },
+    "tools": {
+      "items": {
+        "$ref": "#/$defs/Tool"
+      },
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "toolpack",
+    "image",
+    "tools"
+  ],
+  "title": "GLOW toolpack manifest",
+  "type": "object"
+}

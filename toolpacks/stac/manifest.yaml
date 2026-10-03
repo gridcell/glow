@@ -1,0 +1,40 @@
+# STAC toolpack. The image digest is a placeholder until the toolpack images
+# are built and published (issue 10).
+toolpack: stac
+image: ghcr.io/sparkgeo/glow-stac@sha256:0000000000000000000000000000000000000000000000000000000000000000
+tools:
+  - name: stac.item
+    description: >-
+      Build one STAC item from asset hrefs. Geometry and bbox come from the
+      first asset with the data role.
+    inputs:
+      id: { type: string, description: STAC item id. }
+      datetime: { type: string, format: date-time }
+      assets:
+        type: object
+        description: Asset key to asset object (href, roles, title, type).
+        additionalProperties:
+          type: object
+          properties:
+            href: { type: string }
+            roles: { type: array, items: { type: string } }
+            title: { type: string }
+            type: { type: string }
+          required: [href]
+      properties: { type: object, description: Extra item properties. }
+      extensions: { type: object, description: Extension objects keyed by extension name. }
+    required: [id, assets]
+    outputs:
+      item: { type: object, description: The STAC item. }
+    command: [stac_item_wrapper]
+
+  - name: stac.publish
+    description: Upsert a collection's items in one bulk write and copy assets to dest.
+    inputs:
+      collection: { type: string, description: Registered collection id. }
+      items: { type: array, items: { type: object } }
+      dest: { type: string, format: uri, description: Registered location for assets. }
+    required: [collection, items]
+    outputs:
+      count: { type: integer, description: Number of items upserted. }
+    command: [stac_publish_wrapper]

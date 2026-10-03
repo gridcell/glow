@@ -1,0 +1,15 @@
+# Prescient toolpack. The image digest is a placeholder until the toolpack
+# images are built and published (issue 10).
+toolpack: prescient
+image: ghcr.io/sparkgeo/glow-prescient@sha256:0000000000000000000000000000000000000000000000000000000000000000
+tools:
+  - name: prescient.render_from_color_table
+    description: Turn a color table into STAC render extension entries for one asset.
+    inputs:
+      color_table: { type: file, media_type: text/plain }
+      asset: { type: string, description: Asset key the render applies to. }
+      name: { type: string, description: Render name. }
+    required: [color_table, asset, name]
+    outputs:
+      renders: { type: object, description: Render extension objects keyed by name. }
+    command: [render_from_color_table_wrapper]

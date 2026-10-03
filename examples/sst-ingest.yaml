@@ -1,0 +1,66 @@
+# Sea surface temperature ingestion, from Appendix A of the GLOW v2 plan.
+#
+# Keys and values match the plan. The plan writes some `with` blocks and asset
+# entries as inline `{ ... }` mappings; YAML does not allow a bare `${{ }}`
+# inside an inline mapping, so those are written in block style here.
+name: sst-ingest
+inputs:
+  source: { type: uri } # must be a registered location
+  dest: { type: uri }
+  collection: { type: string }
+  color_table: { type: file, media_type: text/plain }
+steps:
+  - id: items
+    uses: fs.group
+    with:
+      root: ${{ inputs.source }}
+      pattern: "sst_(?P<date>\\d{8})\\.nc$"
+      key: date
+      media_type: application/x-netcdf
+  - id: per_item
+    for_each: ${{ steps.items.outputs.groups }}
+    as: g
+    steps:
+      - id: cog
+        uses: gdal.translate@1
+        with:
+          source: ${{ g.files[0].path }}
+          subdataset: sea_surface_temperature
+          format: COG
+          creation_options: { COMPRESS: DEFLATE, PREDICTOR: 2 }
+      - id: thumb
+        uses: gdal.dem.color_relief@1
+        with:
+          source: ${{ steps.cog.outputs.result }}
+          color_table: ${{ inputs.color_table }}
+          size: [600, 0]
+          format: PNG
+      - id: render
+        uses: prescient.render_from_color_table@1
+        with:
+          color_table: ${{ inputs.color_table }}
+          asset: data
+          name: sst
+      - id: item
+        uses: stac.item@1
+        with:
+          id: sst-${{ g.key }}
+          datetime: ${{ date(g.key, '%Y%m%d') }}
+          assets:
+            data:
+              href: ${{ steps.cog.outputs.result }}
+              roles: [data]
+              title: Sea surface temperature
+            thumbnail:
+              href: ${{ steps.thumb.outputs.result }}
+              roles: [thumbnail]
+          extensions:
+            render: ${{ steps.render.outputs.renders }}
+    outputs:
+      item: ${{ steps.item.outputs.item }}
+  - id: publish
+    uses: stac.publish@1
+    with:
+      collection: ${{ inputs.collection }}
+      items: ${{ steps.per_item.outputs.item }}
+      dest: ${{ inputs.dest }}
