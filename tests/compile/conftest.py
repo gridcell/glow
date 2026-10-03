@@ -32,6 +32,10 @@ COMPILED = {
     "secrets": FIXTURES / "secrets.yaml",
     "resources": FIXTURES / "resources.yaml",
     "script-step": FIXTURES / "script-step.yaml",
+    "block-outer-step-output": FIXTURES / "block-outer-step-output.yaml",
+    "block-outer-let": FIXTURES / "block-outer-let.yaml",
+    "block-outer-loop-var": FIXTURES / "block-outer-loop-var.yaml",
+    "block-nested-fan-in": FIXTURES / "block-nested-fan-in.yaml",
 }
 
 

@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
-  generateName: resources-
+  generateName: block-outer-step-output-
   namespace: tenant-acme
 spec:
   entrypoint: main
@@ -10,41 +10,93 @@ spec:
   - name: main
     dag:
       tasks:
-      - name: big
-        template: big-fanout
-      - name: small
-        template: tool-gdal-translate-small
-        withParam: '{{workflow.parameters.sources}}'
+      - name: items
+        template: builtin-fs-group
         arguments:
           parameters:
           - name: raw-with
-            value: eyJzb3VyY2UiOiIke3sgc291cmNlIH19IiwiZm9ybWF0IjoiUE5HIn0=
+            value: eyJyb290IjoiJHt7IGlucHV0cy5yb290IH19IiwicGF0dGVybiI6Iig/UDxkYXRlPlxcZHs4fSlcXC50aWYkIiwia2V5IjoiZGF0ZSIsIm1lZGlhX3R5cGUiOiJpbWFnZS90aWZmOyBhcHBsaWNhdGlvbj1nZW90aWZmIn0=
           - name: scope
-            value: '{"inputs":{"sources":{{workflow.parameters.sources}}},"source":{{item}}}'
+            value: '{"inputs":{"root":{{workflow.parameters.root}}}}'
           - name: run-prefix
-            value: s3://artifact-bucket-acme/runs/{{workflow.uid}}/steps/small/{{item}}
-  - name: big-fanout
-    parallelism: 3
+            value: s3://artifact-bucket-acme/runs/{{workflow.uid}}/steps/items
+      - name: per-item
+        depends: items
+        template: per-item-block
+        withParam: '{{tasks.items.outputs.parameters.groups}}'
+        arguments:
+          parameters:
+          - name: run-prefix
+            value: s3://artifact-bucket-acme/runs/{{workflow.uid}}/steps/per-item/{{item.key}}
+          - name: loop-per-item
+            value: '{{item}}'
+          - name: upstream-items
+            value: '{{tasks.items.outputs.parameters.outputs}}'
+          - name: task-items-groups
+            value: '{{tasks.items.outputs.parameters.groups}}'
+  - name: per-item-block
     dag:
       tasks:
-      - name: big
+      - name: cog
         template: tool-gdal-translate
-        withParam: '{{workflow.parameters.sources}}'
         arguments:
           parameters:
           - name: raw-with
-            value: eyJzb3VyY2UiOiIke3sgc291cmNlIH19IiwiZm9ybWF0IjoiQ09HIn0=
+            value: eyJzb3VyY2UiOiIke3sgZy5maWxlc1swXS5wYXRoIH19Iiwic3ViZGF0YXNldCI6IiR7eyBzdGVwcy5pdGVtcy5vdXRwdXRzLmdyb3Vwc1swXS5rZXkgfX0ifQ==
           - name: scope
-            value: '{"inputs":{"sources":{{workflow.parameters.sources}}},"source":{{item}}}'
+            value: '{"inputs":{"root":{{workflow.parameters.root}}},"g":{{inputs.parameters.loop-per-item}}}'
           - name: run-prefix
-            value: s3://artifact-bucket-acme/runs/{{workflow.uid}}/steps/big/{{item}}
+            value: '{{inputs.parameters.run-prefix}}/cog'
+          - name: upstream-items
+            value: '{{inputs.parameters.upstream-items}}'
+      - name: per-group
+        template: per-group-block
+        withParam: '{{inputs.parameters.task-items-groups}}'
+        arguments:
+          parameters:
+          - name: run-prefix
+            value: '{{inputs.parameters.run-prefix}}/per-group/{{item.key}}'
+          - name: loop-per-group
+            value: '{{item}}'
+          - name: upstream-items
+            value: '{{inputs.parameters.upstream-items}}'
+    inputs:
+      parameters:
+      - name: run-prefix
+      - name: loop-per-item
+      - name: upstream-items
+      - name: task-items-groups
     outputs:
       parameters:
       - name: result
         valueFrom:
-          parameter: '{{tasks.big.outputs.parameters.result}}'
-  - name: tool-gdal-translate
-    activeDeadlineSeconds: 5400
+          parameter: '{{tasks.cog.outputs.parameters.result}}'
+  - name: per-group-block
+    dag:
+      tasks:
+      - name: pair
+        template: tool-gdal-translate
+        arguments:
+          parameters:
+          - name: raw-with
+            value: eyJzb3VyY2UiOiIke3sgb3RoZXIuZmlsZXNbMF0ucGF0aCB9fSIsInN1YmRhdGFzZXQiOiIke3sgc3RlcHMuaXRlbXMub3V0cHV0cy5ncm91cHNbMF0ua2V5IH19In0=
+          - name: scope
+            value: '{"inputs":{"root":{{workflow.parameters.root}}},"other":{{inputs.parameters.loop-per-group}}}'
+          - name: run-prefix
+            value: '{{inputs.parameters.run-prefix}}/pair'
+          - name: upstream-items
+            value: '{{inputs.parameters.upstream-items}}'
+    inputs:
+      parameters:
+      - name: run-prefix
+      - name: loop-per-group
+      - name: upstream-items
+    outputs:
+      parameters:
+      - name: pairs
+        valueFrom:
+          parameter: '{{tasks.pair.outputs.parameters.result}}'
+  - name: builtin-fs-group
     initContainers:
     - name: glow-init
       image: ghcr.io/sparkgeo/glow-exec:test
@@ -71,20 +123,21 @@ spec:
       emptyDir:
         sizeLimit: 20Gi
     container:
-      image: local/gdal:dev
+      image: ghcr.io/sparkgeo/glow-engine:test
       args:
-      - gdal_translate_wrapper
+      - glow-builtin
+      - fs.group
       command:
       - /glow/exec
       - run
       - --tool
-      - gdal.translate@1
+      - fs.group@1
       - --
       env:
       - name: GLOW_RAW_WITH
         value: '{{inputs.parameters.raw-with}}'
       - name: GLOW_MANIFEST
-        value: eyJuYW1lIjoiZ2RhbC50cmFuc2xhdGUiLCJkZXNjcmlwdGlvbiI6IkNvbnZlcnQgYSByYXN0ZXIgd2l0aCBnZGFsX3RyYW5zbGF0ZS4gT3V0cHV0IG1lZGlhIHR5cGUgZm9sbG93cyBgZm9ybWF0YC4iLCJpbnB1dHMiOnsic291cmNlIjp7InR5cGUiOiJmaWxlIiwibWVkaWFfdHlwZSI6WyJpbWFnZS90aWZmOyBhcHBsaWNhdGlvbj1nZW90aWZmIiwiaW1hZ2UvanAyIiwiYXBwbGljYXRpb24veC1uZXRjZGYiLCJhcHBsaWNhdGlvbi92bmQuZ2RhbC52cnQreG1sIl0sInJlbW90ZSI6dHJ1ZX0sInN1YmRhdGFzZXQiOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoibmV0Q0RGIHZhcmlhYmxlLCByZWFkIGFzIE5FVENERjpcIjxzb3VyY2U+XCI6PHN1YmRhdGFzZXQ+LiJ9LCJmb3JtYXQiOnsidHlwZSI6InN0cmluZyIsImVudW0iOlsiQ09HIiwiR1RpZmYiLCJQTkciXSwiZGVmYXVsdCI6IkNPRyJ9LCJjcmVhdGlvbl9vcHRpb25zIjp7InR5cGUiOiJvYmplY3QiLCJhZGRpdGlvbmFsUHJvcGVydGllcyI6eyJ0eXBlIjoic3RyaW5nIn19fSwicmVxdWlyZWQiOlsic291cmNlIl0sIm91dHB1dHMiOnsicmVzdWx0Ijp7InR5cGUiOiJmaWxlIiwicGF0aCI6Im91dC57ZXh0fSIsIm1lZGlhX3R5cGVfZnJvbSI6ImZvcm1hdCIsIm1lZGlhX3R5cGVzIjp7IkNPRyI6ImltYWdlL3RpZmY7IGFwcGxpY2F0aW9uPWdlb3RpZmY7IHByb2ZpbGU9Y2xvdWQtb3B0aW1pemVkIiwiR1RpZmYiOiJpbWFnZS90aWZmOyBhcHBsaWNhdGlvbj1nZW90aWZmIiwiUE5HIjoiaW1hZ2UvcG5nIn19fSwiY29tbWFuZCI6WyJnZGFsX3RyYW5zbGF0ZV93cmFwcGVyIl19
+        value: eyJuYW1lIjoiZnMuZ3JvdXAiLCJkZXNjcmlwdGlvbiI6Ikxpc3QgZmlsZXMgdW5kZXIgcm9vdCB3aG9zZSBwYXRoIHJlbGF0aXZlIHRvIHJvb3QgbWF0Y2hlcyBwYXR0ZXJuLCBhbmQgZ3JvdXAgdGhlbSBieSB0aGUgdmFsdWUgb2Ygb25lIG5hbWVkIGNhcHR1cmUuIiwiaW5wdXRzIjp7InJvb3QiOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoiUmVnaXN0ZXJlZCBsb2NhdGlvbiB0byBsaXN0LCBzdWNoIGFzIHMzOi8vYnVja2V0L3ByZWZpeC8uIiwiZm9ybWF0IjoidXJpIn0sInBhdHRlcm4iOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoiUmVndWxhciBleHByZXNzaW9uIHdpdGggbmFtZWQgY2FwdHVyZXMsIHN1Y2ggYXMgKD9QPGRhdGU+XFxkezh9KS4iLCJmb3JtYXQiOiJyZWdleCJ9LCJrZXkiOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoiTmFtZSBvZiB0aGUgY2FwdHVyZSB0byBncm91cCBieS4ifSwibWVkaWFfdHlwZSI6eyJ0eXBlIjoic3RyaW5nIiwiZGVzY3JpcHRpb24iOiJNZWRpYSB0eXBlIHRvIGFzc2lnbiB0byB0aGUgbGlzdGVkIGZpbGVzLiJ9fSwicmVxdWlyZWQiOlsicm9vdCIsInBhdHRlcm4iLCJrZXkiXSwib3V0cHV0cyI6eyJncm91cHMiOnsidHlwZSI6ImFycmF5IiwiZGVzY3JpcHRpb24iOiJPbmUgZ3JvdXAgcGVyIGRpc3RpbmN0IGtleS4iLCJpdGVtcyI6eyJ0eXBlIjoiZ3JvdXAiLCJwcm9wZXJ0aWVzIjp7ImtleSI6eyJ0eXBlIjoic3RyaW5nIiwiZGVzY3JpcHRpb24iOiJWYWx1ZSBvZiB0aGUgYGtleWAgY2FwdHVyZS4ifSwiY2FwdHVyZXMiOnsidHlwZSI6Im9iamVjdCIsImFkZGl0aW9uYWxQcm9wZXJ0aWVzIjp7InR5cGUiOiJzdHJpbmcifX0sImZpbGVzIjp7InR5cGUiOiJhcnJheSIsIml0ZW1zIjp7InR5cGUiOiJmaWxlIn19fSwicmVxdWlyZWQiOlsia2V5IiwiY2FwdHVyZXMiLCJmaWxlcyJdfX19fQ==
       - name: GLOW_SCOPE
         value: '{{inputs.parameters.scope}}'
       - name: GLOW_LET
@@ -94,21 +147,13 @@ spec:
       - name: GLOW_RUN_PREFIX
         value: '{{inputs.parameters.run-prefix}}'
       - name: GLOW_STAGING
-        value: auto
+        value: copy
       volumeMounts:
       - name: glow
         mountPath: /glow
         readOnly: true
       - name: work
         mountPath: /work
-      resources:
-        limits:
-          cpu: '4'
-          memory: 8Gi
-          nvidia.com/gpu: '1'
-        requests:
-          cpu: '2'
-          memory: 8Gi
       securityContext:
         allowPrivilegeEscalation: false
         readOnlyRootFilesystem: true
@@ -132,15 +177,11 @@ spec:
       - name: outputs
         valueFrom:
           path: /work/outputs.resolved.json
-      - name: result
+      - name: groups
         valueFrom:
           default: 'null'
-          path: /work/outputs/result.json
-    retryStrategy:
-      limit: '2'
-      retryPolicy: OnError
-  - name: tool-gdal-translate-small
-    activeDeadlineSeconds: 600
+          path: /work/outputs/groups.json
+  - name: tool-gdal-translate
     initContainers:
     - name: glow-init
       image: ghcr.io/sparkgeo/glow-exec:test
@@ -191,6 +232,8 @@ spec:
         value: '{{inputs.parameters.run-prefix}}'
       - name: GLOW_STAGING
         value: copy
+      - name: GLOW_UPSTREAM_items
+        value: '{{inputs.parameters.upstream-items}}'
       volumeMounts:
       - name: glow
         mountPath: /glow
@@ -215,6 +258,7 @@ spec:
       - name: if
         default: ''
       - name: run-prefix
+      - name: upstream-items
     outputs:
       parameters:
       - name: outputs
@@ -226,4 +270,4 @@ spec:
           path: /work/outputs/result.json
   arguments:
     parameters:
-    - name: sources
+    - name: root

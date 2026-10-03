@@ -1,4 +1,5 @@
-# A block member uses a let binding of its block.
+# Block members use let bindings of their own block and of the block around
+# it. The inner let uses an outer let, so a member needs both, in order.
 name: block-outer-let
 inputs:
   sources: { type: array }
@@ -8,10 +9,25 @@ steps:
     as: s
     let:
       path: ${{ s.path }}
+      label: ${{ s.name }}-cog
     steps:
       - id: cog
         uses: gdal.translate@1
         with:
           source: ${{ path }}
+      - id: per_band
+        for_each: ${{ s.bands }}
+        as: band
+        let:
+          variable: ${{ label }}-${{ band }}
+        steps:
+          - id: band_cog
+            uses: gdal.translate@1
+            with:
+              source: ${{ path }}
+              subdataset: ${{ variable }}
+        outputs:
+          cogs: ${{ steps.band_cog.outputs.result }}
     outputs:
       result: ${{ steps.cog.outputs.result }}
+      cogs: ${{ steps.per_band.outputs.cogs }}

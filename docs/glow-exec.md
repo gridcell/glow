@@ -62,6 +62,7 @@ whose content is read without base64 encoding.
 | `GLOW_RAW_WITH` | `--raw-with` | Base64 of the step's `with` block as JSON, with `${{ }}` expressions unevaluated. |
 | `GLOW_MANIFEST` | `--manifest` | Base64 of the toolpack manifest (YAML or JSON), or of a single tool spec for `run` and `script` steps. |
 | `GLOW_SCOPE` | `--scope` | JSON object. Each top-level key is an expression variable: `inputs`, loop variables, `let` values. |
+| `GLOW_LET` | `--let` | Base64 of a JSON list of `{"name", "value"}` objects: the `let` bindings to evaluate, in order, with `${{ }}` unevaluated. Empty means none. |
 | `GLOW_IF` | `--if` | The step's `if` value, for example `${{ steps.count.outputs.total > 0 }}`. A value without `${{ }}` is one expression; the compiler passes this form, because Argo reads `{{` as its own tag. Empty means run. |
 | `GLOW_UPSTREAM_<step>` | `--upstream <step>=<json>` | The `outputs.resolved.json` of an upstream step. `<step>` is the step id as written in the workflow. The flag can repeat. |
 | `GLOW_RUN_PREFIX` | `--run-prefix` | Where outputs go: an absolute path, `file://` URI or `s3://` URI. Required by collect. |
@@ -74,6 +75,77 @@ cannot type statically has no `type`, and accepts any value.
 Each decoded parameter is limited to 16 MiB. The manifest is limited to
 1 MiB. Linux limits one environment variable to 128 KiB, so large values
 need the parameter spill to files, which is a planned follow-up.
+
+## Values inside blocks
+
+An Argo template sees only its own inputs and the workflow parameters. So
+the compiler passes each value that a step in a `for_each` block uses from
+outside the block as a template input, through every level of nesting:
+
+| Template input | Value |
+| --- | --- |
+| `loop-<block>` | The loop variable of `<block>`, as JSON. |
+| `upstream-<step>` | The `outputs.resolved.json` of a step outside the block. |
+| `task-<step>-<output>` | One output of a step outside the block, for the `for_each` of a nested block. |
+| `run-prefix` | The run prefix of the block item. |
+
+`<block>` and `<step>` are Argo task names. A template declares only the
+inputs that its tasks use.
+
+The step then gets these parameters:
+
+- `scope` holds `inputs` and each loop variable that the step uses, from
+  any level. Argo substitutes the values before the pod starts.
+- `let` lists each `let` binding that the step uses, and each binding that
+  those bindings use. The outermost block comes first. In one block, the
+  order is the order of definition. Stage evaluates each binding with the
+  scope, the upstream steps and the bindings before it. Then it evaluates
+  `if` and the `with` block, which can use the bindings.
+- `upstream-<step>` is given for each step the expressions use, also for a
+  step outside the block. The references of each binding and of the `if` of
+  each enclosing block count.
+
+For example, take this block:
+
+```yaml
+- id: per_scene
+  for_each: ${{ inputs.scenes }}
+  as: scene
+  let:
+    scene_id: ${{ scene.id }}
+  steps:
+    - id: per_band
+      for_each: ${{ scene.bands }}
+      as: band
+      steps:
+        - id: cog
+          uses: gdal.translate@1
+          with:
+            source: ${{ band.path }}
+            subdataset: ${{ scene_id }}
+```
+
+The step `cog` gets:
+
+```text
+scope: {"inputs":{"scenes":{{workflow.parameters.scenes}}},
+        "scene":{{inputs.parameters.loop-per-scene}},
+        "band":{{inputs.parameters.loop-per-band}}}
+let:   base64 of [{"name":"scene_id","value":"${{ scene.id }}"}]
+```
+
+The template `per-band-block` declares `loop-per-scene`, `loop-per-band` and
+`run-prefix`. The template `per-scene-block` passes
+`{{inputs.parameters.loop-per-scene}}` on to it.
+
+glow-exec has one variable per name. If a step needs two variables with the
+same name, the compiler fails with `GLOW-E050`. For example, a `let` of an
+outer block uses the loop variable `x`, and an inner block also names its
+loop variable `x`.
+
+A block output that reads a nested block's output is an array with one
+entry per item. Each entry is the inner array, so the type is
+`array<array<T>>`.
 
 ## Expressions
 

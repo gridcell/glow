@@ -11,20 +11,28 @@ environment (docs/glow-exec.md). Each Argo parameter carries JSON:
 
 - `raw-with` is the base64 `with` block, expressions unevaluated;
 - `scope` is a JSON object of the expression variables, assembled from
-  workflow parameters and the loop variable;
+  workflow parameters and the loop variables the step uses, at any depth;
+- `let` is the base64 list of the lets the step uses, which glow-exec
+  evaluates in order;
 - `upstream-<step>` is the `outputs.resolved.json` of a step the expressions
   use. After a fan-out it is rebuilt from the per-output aggregates, which
-  Argo collects into JSON arrays;
+  Argo collects into JSON arrays; a nested fan-out gives arrays of arrays;
 - `if` is the bare CEL text, combined with the `if` of enclosing blocks;
 - `run-prefix` is where glow-exec uploads outputs.
 
 Workflow parameter values must therefore be JSON too: a string input is
 passed as `"text"`, with the quotes.
+
+A block template sees only its own inputs, so the compiler threads every
+outer value its members use through each template on the way down (see
+`_Frame`): `loop-<block>` for a loop variable, `upstream-<step>` for an outer
+step, `task-<step>-<output>` for an outer for_each operand, and `run-prefix`.
 """
 
 import json
 import re
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from hera.workflows import Workflow
@@ -155,48 +163,62 @@ def _input(name: str) -> str:
     return f"{{{{inputs.parameters.{name}}}}}"
 
 
+def _loop_input(block_task: str) -> str:
+    return f"loop-{block_task}"
+
+
 @dataclass(slots=True)
 class _Frame:
-    """The DAG template a task is built in.
+    """The DAG template a task is built in, and the inputs it declares.
 
-    `block` is the for_each block that owns the DAG, None for `main`.
-    `threaded` are steps outside the block whose outputs arrive as
-    `upstream-<name>` inputs, for the `if` of enclosing blocks, which every
-    member also evaluates (`conditions`). Inside a fan-out wrapper, `outer`
-    is the frame the wrapper is called from, and `passed` records each
-    wrapper input with its value there.
+    `tasks` are the tasks the DAG holds; no other task is in reach. The
+    caller passes the `provided` values, a block's loop variable and run
+    prefix; every other value comes from `outer`, the frame of the caller.
+    Asking for a value the frame does not hold adds a template input to
+    `inputs`, with its value in the caller, so a template declares exactly
+    the inputs its tasks use. `main` has no outer frame and writes under
+    `top_prefix`. `conditions` are the `if` of the enclosing blocks, which
+    every member also evaluates.
     """
 
-    block: ir.Step | None
-    top_prefix: str | None
-    threaded: tuple[str, ...] = ()
+    tasks: frozenset[str]
+    top_prefix: str | None = None
+    provided: dict[str, str] = field(default_factory=dict)
     conditions: tuple[str, ...] = ()
     outer: "_Frame | None" = None
-    passed: dict[str, str] = field(default_factory=dict)
+    inputs: dict[str, str] = field(default_factory=dict)
 
-    def input(self, name: str) -> str:
-        if self.outer is not None:
-            self.passed[name] = self.outer.input(name)
-        return _input(name)
-
-    def input_expression(self, name: str) -> str:
-        """An input as a variable of an Argo `{{= }}` expression. `name` is an identifier."""
-        self.input(name)
-        return f"inputs.parameters.{name}"
-
-    def task_output(self, task: str, parameter: str) -> str:
-        if self.outer is None:
-            return f"{{{{tasks.{task}.outputs.parameters.{parameter}}}}}"
-        name = f"task-{task}-{parameter}"
-        self.passed[name] = self.outer.task_output(task, parameter)
+    def request(self, name: str, value_in: Callable[["_Frame"], str]) -> str:
+        """The template input `name`; `value_in(outer)` gives its value in the caller."""
+        if name not in self.inputs:
+            if name in self.provided:
+                self.inputs[name] = self.provided[name]
+            else:
+                assert self.outer is not None, f"main has no value for {name}"
+                self.inputs[name] = value_in(self.outer)
         return _input(name)
 
     def prefix(self) -> str:
         """The run prefix under which this DAG's steps write."""
-        return self.top_prefix if self.top_prefix is not None else self.input("run-prefix")
+        if self.top_prefix is not None:
+            return self.top_prefix
+        return self.request("run-prefix", _Frame.prefix)
 
-    def wrapper(self) -> "_Frame":
-        return _Frame(self.block, self.top_prefix, self.threaded, self.conditions, outer=self)
+    def loop_value(self, block_task: str) -> str:
+        """The loop variable of a block, as JSON."""
+        return self.request(_loop_input(block_task), lambda outer: outer.loop_value(block_task))
+
+    def loop_expression(self, block_task: str) -> str:
+        """The loop variable of a block, as a variable of an Argo `{{= }}` expression."""
+        self.loop_value(block_task)
+        return f"inputs.parameters['{_loop_input(block_task)}']"
+
+    def task_output(self, task: str, parameter: str) -> str:
+        if task in self.tasks:
+            return _task_output(task, parameter)
+        return self.request(
+            f"task-{task}-{parameter}", lambda outer: outer.task_output(task, parameter)
+        )
 
 
 class _Compiler:
@@ -216,9 +238,8 @@ class _Compiler:
     def build(self) -> Workflow:
         self.templates.claim("main", "main")
         top = f"{self.options.run_prefix}/runs/{{{{workflow.uid}}}}/steps"
-        main = m.Template(
-            name="main", dag=m.DAGTemplate(tasks=self._tasks(_Frame(None, top), None))
-        )
+        frame = _Frame(self._task_names(None), top_prefix=top)
+        main = m.Template(name="main", dag=m.DAGTemplate(tasks=self._tasks(frame, None)))
         errors = self.errors + self.templates.errors
         if errors:
             raise CompileError(errors)
@@ -237,6 +258,9 @@ class _Compiler:
     def _tasks(self, frame: _Frame, owner: str | None) -> list[m.DAGTask]:
         return [self._task(step, frame) for step in self.children[owner]]
 
+    def _task_names(self, owner: str | None) -> frozenset[str]:
+        return frozenset(self.names[step.id] for step in self.children[owner])
+
     def _task(self, step: ir.Step, frame: _Frame) -> m.DAGTask:
         name = self.names[step.id]
         depends = " && ".join(self.names[producer] for producer in step.depends_on) or None
@@ -248,8 +272,10 @@ class _Compiler:
         self, step: ir.Step, frame: _Frame, name: str, depends: str | None
     ) -> m.DAGTask:
         if step.loop is None:
-            arguments = self._body_arguments(step, frame, None, f"{frame.prefix()}/{name}")
-            template = self._body_template(step, frame)
+            needs = scope.environment(self.workflow, step)
+            run_prefix = f"{frame.prefix()}/{name}"
+            arguments = self._body_arguments(step, frame, needs, None, run_prefix)
+            template = self._body_template(step, needs)
             return m.DAGTask(
                 name=name,
                 template=template,
@@ -262,8 +288,9 @@ class _Compiler:
         if step.id in self.children:
             template, arguments = self._block_call(step, frame, item, run_prefix)
         else:
-            template = self._body_template(step, frame)
-            arguments = self._body_arguments(step, frame, item, run_prefix)
+            needs = scope.environment(self.workflow, step)
+            template = self._body_template(step, needs)
+            arguments = self._body_arguments(step, frame, needs, item, run_prefix)
         return m.DAGTask(
             name=name,
             template=template,
@@ -280,7 +307,9 @@ class _Compiler:
         assert step.loop is not None and step.loop.max_parallelism is not None
         template_name = self.templates.claim(f"{name}-fanout", step.id)
         slot = self._reserve(template_name)
-        inner_frame = frame.wrapper()
+        inner_frame = _Frame(
+            frozenset({name}), frame.top_prefix, conditions=frame.conditions, outer=frame
+        )
         inner = self._inner_task(step, inner_frame, name, None)
         outputs = [
             m.Parameter(name=output, value_from=m.ValueFrom(parameter=_task_output(name, output)))
@@ -290,14 +319,14 @@ class _Compiler:
             name=template_name,
             parallelism=step.loop.max_parallelism,
             inputs=(
-                m.Inputs(parameters=[_parameter(key) for key in inner_frame.passed])
-                if inner_frame.passed
+                m.Inputs(parameters=[_parameter(key) for key in inner_frame.inputs])
+                if inner_frame.inputs
                 else None
             ),
             outputs=m.Outputs(parameters=outputs) if outputs else None,
             dag=m.DAGTemplate(tasks=[inner]),
         )
-        arguments = [_parameter(key, value) for key, value in inner_frame.passed.items()]
+        arguments = [_parameter(key, value) for key, value in inner_frame.inputs.items()]
         return m.DAGTask(
             name=name,
             template=template_name,
@@ -309,20 +338,19 @@ class _Compiler:
         self, block: ir.Step, frame: _Frame, item: str, run_prefix: str
     ) -> tuple[str, list[m.Parameter]]:
         assert block.loop is not None
-        if_steps = [
-            edge.source_step
-            for edge in self.workflow.edges_into(block.id)
-            if edge.target == "if" and edge.source_step is not None
-        ]
-        threaded = tuple(dict.fromkeys([*frame.threaded, *if_steps]))
         conditions = frame.conditions
         if block.condition is not None:
             conditions = (*conditions, scope.condition_expression(block.condition))
-        name = self.templates.claim(f"{self.names[block.id]}-block", block.id)
+        task = self.names[block.id]
+        name = self.templates.claim(f"{task}-block", block.id)
         slot = self._reserve(name)
-        inner = _Frame(block, None, threaded, conditions)
+        inner = _Frame(
+            self._task_names(block.id),
+            provided={_loop_input(task): item, "run-prefix": run_prefix},
+            conditions=conditions,
+            outer=frame,
+        )
         tasks = self._tasks(inner, block.id)
-        upstream = [f"upstream-{self.names[producer]}" for producer in threaded]
         outputs = [
             m.Parameter(
                 name=output, value_from=m.ValueFrom(parameter=self._block_output(block, value))
@@ -331,25 +359,11 @@ class _Compiler:
         ]
         self.dag_templates[slot] = m.Template(
             name=name,
-            inputs=m.Inputs(
-                parameters=[
-                    _parameter(key) for key in (block.loop.variable, "run-prefix", *upstream)
-                ]
-            ),
+            inputs=m.Inputs(parameters=[_parameter(key) for key in inner.inputs]),
             outputs=m.Outputs(parameters=outputs) if outputs else None,
             dag=m.DAGTemplate(tasks=tasks),
         )
-        arguments = [
-            _parameter(block.loop.variable, item),
-            _parameter("run-prefix", run_prefix),
-            *(
-                _parameter(
-                    f"upstream-{self.names[producer]}", self._upstream_value(producer, frame)
-                )
-                for producer in threaded
-            ),
-        ]
-        return name, arguments
+        return name, [_parameter(key, value) for key, value in inner.inputs.items()]
 
     def _reserve(self, name: str) -> int:
         """Keep a place for a DAG template, so callers come before the templates they call."""
@@ -379,31 +393,40 @@ class _Compiler:
             if not rest:
                 return f"{{{{{variable}}}}}"
             return _json_path(variable, rest)
-        if (
-            frame.block is not None
-            and frame.block.loop is not None
-            and parts[:1] == [frame.block.loop.variable]
-        ):
+        binder = self._loop_binder(step)
+        if binder is not None and parts[:1] == [self._loop(binder).variable]:
+            block_task = self.names[binder]
             if len(parts) == 1:
-                return frame.input(parts[0])
-            return _json_path(frame.input_expression(parts[0]), parts[1:])
+                return frame.loop_value(block_task)
+            return _json_path(frame.loop_expression(block_task), parts[1:])
         return self._unsupported(
             step,
             "a compiled for_each must be one reference: steps.<id>.outputs.<name>, "
             "inputs.<name>[.<field>...] or <loop variable>[.<field>...]",
         )
 
+    def _loop_binder(self, step: ir.Step) -> str | None:
+        """The block whose loop variable the for_each operand of `step` uses, if any."""
+        for edge in self.workflow.edges_into(step.id):
+            if edge.target == "for_each" and edge.symbol == "loop":
+                return edge.binder
+        return None
+
+    def _loop(self, step_id: str) -> ir.Loop:
+        loop = self.workflow.step(step_id).loop
+        assert loop is not None, "a loop reference names a for_each step"
+        return loop
+
     def _unsupported(self, step: ir.Step, message: str) -> str:
         self.errors.append(GlowError(Code.NOT_YET_SUPPORTED, f"{step.id}.for_each", message))
         return "[]"
 
-    def _upstreams(self, step: ir.Step, frame: _Frame) -> list[str]:
-        return list(dict.fromkeys([*frame.threaded, *step.depends_on]))
-
     def _upstream_value(self, producer_id: str, frame: _Frame) -> str:
         task = self.names[producer_id]
-        if producer_id in frame.threaded:
-            return frame.input(f"upstream-{task}")
+        if task not in frame.tasks:
+            return frame.request(
+                f"upstream-{task}", lambda outer: self._upstream_value(producer_id, outer)
+            )
         producer = self.workflow.step(producer_id)
         if producer.loop is None:
             return frame.task_output(task, RESOLVED_PARAMETER)
@@ -414,25 +437,44 @@ class _Compiler:
         )
         return f'{{"outputs":{{{fields}}},"skipped":false}}'
 
-    def _scope(self, step: ir.Step, frame: _Frame, item: str | None) -> str:
+    def _scope(
+        self, step: ir.Step, frame: _Frame, needs: scope.Environment, item: str | None
+    ) -> str:
         inputs = ",".join(
             f'"{name}":{{{{workflow.parameters.{name}}}}}' for name in self.workflow.inputs
         )
         variables = {"inputs": f"{{{inputs}}}"}
-        if frame.block is not None and frame.block.loop is not None:
-            variables[frame.block.loop.variable] = frame.input(frame.block.loop.variable)
-        if item is not None and step.loop is not None:
-            variables[step.loop.variable] = item
+        for binder in needs.loops:
+            if binder == step.id:
+                assert item is not None, "a step's own loop variable is its item"
+                value = item
+            else:
+                value = frame.loop_value(self.names[binder])
+            variables[self._loop(binder).variable] = value
         return "{" + ",".join(f'"{name}":{value}' for name, value in variables.items()) + "}"
 
+    def _lets(self, needs: scope.Environment) -> str:
+        bindings = [
+            {"name": name, "value": self.workflow.step(binder).let_values[name]}
+            for binder, name in needs.lets
+        ]
+        return encode_json(bindings)
+
     def _body_arguments(
-        self, step: ir.Step, frame: _Frame, item: str | None, run_prefix: str
+        self,
+        step: ir.Step,
+        frame: _Frame,
+        needs: scope.Environment,
+        item: str | None,
+        run_prefix: str,
     ) -> list[m.Parameter]:
         arguments = [
             _parameter("raw-with", encode_json(step.raw_with)),
-            _parameter("scope", self._scope(step, frame, item)),
+            _parameter("scope", self._scope(step, frame, needs, item)),
             _parameter("run-prefix", run_prefix),
         ]
+        if needs.lets:
+            arguments.append(_parameter("let", self._lets(needs)))
         conditions = frame.conditions
         if step.condition is not None:
             conditions = (*conditions, scope.condition_expression(step.condition))
@@ -444,12 +486,12 @@ class _Compiler:
         source = step.run if step.run is not None else step.script
         if source is not None:
             arguments.append(_parameter("script", encode_text(source)))
-        for producer in self._upstreams(step, frame):
+        for producer in needs.steps:
             value = self._upstream_value(producer, frame)
             arguments.append(_parameter(f"upstream-{self.names[producer]}", value))
         return arguments
 
-    def _body_template(self, step: ir.Step, frame: _Frame) -> str:
+    def _body_template(self, step: ir.Step, needs: scope.Environment) -> str:
         spec = step.tool_spec
         assert spec is not None
         tool = step.tool
@@ -471,8 +513,7 @@ class _Compiler:
             interpreter = _INTERPRETERS[kind]
             decode = _DECODE_SCRIPT.format(interpreter=interpreter)
             args = ["sh", "-c", decode, f"glow-{kind}", _input("script")]
-        upstream = self._upstreams(step, frame)
-        template = self._container_template(step, image, reference, args, upstream)
+        template = self._container_template(step, image, reference, args, list(needs.steps))
         return self._add_leaf(template, base, step)
 
     def _add_leaf(self, template: m.Template, base: str, step: ir.Step) -> str:
@@ -508,6 +549,7 @@ class _Compiler:
         inputs = [
             _parameter("raw-with"),
             _parameter("scope"),
+            _parameter("let", default=""),
             _parameter("if", default=""),
             _parameter("run-prefix"),
             *([_parameter("script")] if is_script else []),
@@ -517,6 +559,7 @@ class _Compiler:
             m.EnvVar(name="GLOW_RAW_WITH", value=_input("raw-with")),
             m.EnvVar(name="GLOW_MANIFEST", value=encode_json(spec)),
             m.EnvVar(name="GLOW_SCOPE", value=_input("scope")),
+            m.EnvVar(name="GLOW_LET", value=_input("let")),
             m.EnvVar(name="GLOW_IF", value=_input("if")),
             m.EnvVar(name="GLOW_RUN_PREFIX", value=_input("run-prefix")),
             m.EnvVar(name="GLOW_STAGING", value=step.staging),

@@ -86,6 +86,8 @@ spec:
         value: eyJuYW1lIjoiZ2xvdy5zY3JpcHQiLCJpbnB1dHMiOnsidGhyZXNob2xkIjp7InR5cGUiOiJudW1iZXIifSwibGFiZWwiOnsidHlwZSI6InN0cmluZyJ9LCJvcHRpb25zIjp7InR5cGUiOiJvYmplY3QifX0sIm91dHB1dHMiOnsic2NvcmUiOnsidHlwZSI6Im51bWJlciJ9LCJ0YWdzIjp7InR5cGUiOiJhcnJheSJ9fX0=
       - name: GLOW_SCOPE
         value: '{{inputs.parameters.scope}}'
+      - name: GLOW_LET
+        value: '{{inputs.parameters.let}}'
       - name: GLOW_IF
         value: '{{inputs.parameters.if}}'
       - name: GLOW_RUN_PREFIX
@@ -111,6 +113,8 @@ spec:
       parameters:
       - name: raw-with
       - name: scope
+      - name: let
+        default: ''
       - name: if
         default: ''
       - name: run-prefix
@@ -175,6 +179,8 @@ spec:
         value: eyJuYW1lIjoiZ2xvdy5ydW4iLCJpbnB1dHMiOnsic2NvcmUiOnsidHlwZSI6Im51bWJlciJ9LCJmaXJzdF90YWciOnt9fSwib3V0cHV0cyI6eyJkb25lIjp7InR5cGUiOiJib29sZWFuIn19fQ==
       - name: GLOW_SCOPE
         value: '{{inputs.parameters.scope}}'
+      - name: GLOW_LET
+        value: '{{inputs.parameters.let}}'
       - name: GLOW_IF
         value: '{{inputs.parameters.if}}'
       - name: GLOW_RUN_PREFIX
@@ -202,6 +208,8 @@ spec:
       parameters:
       - name: raw-with
       - name: scope
+      - name: let
+        default: ''
       - name: if
         default: ''
       - name: run-prefix

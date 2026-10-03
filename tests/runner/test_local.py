@@ -187,12 +187,44 @@ def test_block_if_false_skips_every_member(tmp_path: Path) -> None:
     assert read(member) == {"skipped": True}
 
 
+def test_block_members_see_lets_and_outer_steps(tmp_path: Path) -> None:
+    path = tmp_path / "workflow.yaml"
+    path.write_text(
+        FAKE_WORKFLOW.read_text()
+        .replace(
+            "    as: who\n",
+            "    as: who\n    let:\n      loud: ${{ who }}!\n      twice: ${{ loud }}${{ loud }}\n",
+        )
+        .replace(
+            "          text: ${{ inputs.greeting }} ${{ who }}",
+            "          text: ${{ twice }} ${{ path.basename(steps.header.outputs.result.uri) }}",
+        )
+    )
+    workflow = load_ir(path, FAKE_TOOLPACKS)
+    _, outputs = run(workflow, tmp_path, FakeGlowExec(), ["alice", "bob"])
+    joined = Path(outputs["joined"]["outputs"]["result"]["uri"]).read_text()
+    assert joined == "alice!alice! header.txt\nbob!bob! header.txt\n"
+
+
+def test_a_failing_let_fails_the_item(tmp_path: Path) -> None:
+    path = tmp_path / "workflow.yaml"
+    path.write_text(
+        FAKE_WORKFLOW.read_text().replace(
+            "    as: who\n", "    as: who\n    let:\n      size: ${{ who.size() / 0 }}\n"
+        )
+    )
+    workflow = load_ir(path, FAKE_TOOLPACKS)
+    with pytest.raises(StepFailedError, match=r"let\.size") as caught:
+        run(workflow, tmp_path, FakeGlowExec(), ["alice"])
+    assert caught.value.step == "per_name[alice]"
+
+
 def test_rejects_what_the_compiler_rejects(tmp_path: Path) -> None:
     path = tmp_path / "workflow.yaml"
     path.write_text(
         FAKE_WORKFLOW.read_text().replace(
-            "          text: ${{ inputs.greeting }} ${{ who }}",
-            "          text: hi ${{ path.basename(steps.header.outputs.result.uri) }}",
+            "      parts: ${{ steps.per_name.outputs.lines }}",
+            "      parts: ${{ steps.per_name.results }}",
         )
     )
     workflow = load_ir(path, FAKE_TOOLPACKS)
