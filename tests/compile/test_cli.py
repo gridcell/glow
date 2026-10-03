@@ -55,10 +55,10 @@ def test_local_images_fail_without_the_flag() -> None:
     assert "5 problem(s) found" in result.stderr
 
 
-def test_outer_reference_fails_with_not_yet_supported() -> None:
+def test_outer_reference_in_a_block_compiles() -> None:
     result = invoke(str(FIXTURES / "block-outer-step-output.yaml"), "--allow-local-images")
-    assert result.exit_code == 1
-    assert "error: cog.with.subdataset [GLOW-E050]" in result.stderr
+    assert result.exit_code == 0, result.stderr
+    assert "upstream-items" in result.stdout
 
 
 def test_invalid_workflow_fails_validation() -> None:

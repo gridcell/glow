@@ -8,8 +8,10 @@ mounted in, given the parameters the compiler would emit (`raw-with`,
 `scope`, `if`, `upstream-*`, the manifest), so glow-exec behaves as it does in
 a cluster.
 
-The runner accepts what the compiler accepts (`glow.compile.scope.check`),
-and fans in the way Argo does: each output of a `for_each` becomes an array
+The runner accepts what the compiler accepts (`glow.compile.scope.check`).
+It evaluates the `let` bindings of a for_each once per item, before its
+members, and passes them to glow-exec in the scope. It fans in the way Argo
+does: each output of a `for_each` becomes an array
 with one entry per item, in item order, `null` where the producing step was
 skipped. When a `for_each` has a false `if`, every item is skipped.
 
@@ -314,6 +316,8 @@ class _Runner:
                 f"{label}[{item.segment}]",
                 skip,
             )
+            if not skip:
+                self._bind_lets(step, inner)
             if is_block:
                 self._run_steps(step.id, inner)
                 item.resolved = self._block_outputs(step, inner)
@@ -468,6 +472,15 @@ class _Runner:
             producer: context.resolved[producer] for producer in self._producers(step, context)
         }
         return Evaluator(expression_variables(context.scope, upstream))
+
+    def _bind_lets(self, step: ir.Step, context: _Context) -> None:
+        """Add the lets of `step` for one item to the scope, each seeing the ones before it."""
+        for name, value in step.let_values.items():
+            evaluator = self._evaluator(step, context)
+            try:
+                context.scope[name] = evaluator.substitute(f"let.{name}", value)
+            except _EXPRESSION_ERRORS as exc:
+                raise StepFailedError(context.label, str(exc)) from None
 
     def _condition(self, step: ir.Step, evaluator: Evaluator, label: str) -> bool:
         if step.condition is None:

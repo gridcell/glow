@@ -27,7 +27,7 @@ spec:
         template: per-scene-fanout
         arguments:
           parameters:
-          - name: task-count-outputs
+          - name: upstream-count
             value: '{{tasks.count.outputs.parameters.outputs}}'
       - name: info
         depends: per-scene
@@ -41,8 +41,6 @@ spec:
             value: '{"inputs":{"scenes":{{workflow.parameters.scenes}},"make_previews":{{workflow.parameters.make_previews}}},"preview":{{item}}}'
           - name: run-prefix
             value: s3://artifact-bucket-acme/runs/{{workflow.uid}}/steps/info/{{item}}
-          - name: upstream-per-scene
-            value: '{"outputs":{"previews":{{tasks.per-scene.outputs.parameters.previews}}},"skipped":false}'
   - name: per-scene-fanout
     parallelism: 4
     dag:
@@ -52,15 +50,15 @@ spec:
         withParam: '{{workflow.parameters.scenes}}'
         arguments:
           parameters:
-          - name: scene
+          - name: loop-per-scene
             value: '{{item}}'
           - name: run-prefix
             value: s3://artifact-bucket-acme/runs/{{workflow.uid}}/steps/per-scene/{{item}}
           - name: upstream-count
-            value: '{{inputs.parameters.task-count-outputs}}'
+            value: '{{inputs.parameters.upstream-count}}'
     inputs:
       parameters:
-      - name: task-count-outputs
+      - name: upstream-count
     outputs:
       parameters:
       - name: previews
@@ -71,13 +69,13 @@ spec:
       tasks:
       - name: per-band
         template: per-band-block
-        withParam: '{{=toJson(jsonpath(inputs.parameters.scene, ''$.bands''))}}'
+        withParam: '{{=toJson(jsonpath(inputs.parameters[''loop-per-scene''], ''$.bands''))}}'
         arguments:
           parameters:
-          - name: band
-            value: '{{item}}'
           - name: run-prefix
             value: '{{inputs.parameters.run-prefix}}/per-band/{{item}}'
+          - name: loop-per-band
+            value: '{{item}}'
           - name: upstream-count
             value: '{{inputs.parameters.upstream-count}}'
       - name: preview
@@ -88,7 +86,7 @@ spec:
           - name: raw-with
             value: eyJzb3VyY2UiOiIke3sgc3RlcHMucGVyX2JhbmQub3V0cHV0cy5jb2dzWzBdIH19IiwiZm9ybWF0IjoiUE5HIn0=
           - name: scope
-            value: '{"inputs":{"scenes":{{workflow.parameters.scenes}},"make_previews":{{workflow.parameters.make_previews}}},"scene":{{inputs.parameters.scene}}}'
+            value: '{"inputs":{"scenes":{{workflow.parameters.scenes}},"make_previews":{{workflow.parameters.make_previews}}}}'
           - name: run-prefix
             value: '{{inputs.parameters.run-prefix}}/preview'
           - name: if
@@ -99,7 +97,7 @@ spec:
             value: '{"outputs":{"cogs":{{tasks.per-band.outputs.parameters.cogs}}},"skipped":false}'
     inputs:
       parameters:
-      - name: scene
+      - name: loop-per-scene
       - name: run-prefix
       - name: upstream-count
     outputs:
@@ -117,7 +115,7 @@ spec:
           - name: raw-with
             value: eyJzb3VyY2UiOiIke3sgYmFuZC5wYXRoIH19IiwiZm9ybWF0IjoiQ09HIn0=
           - name: scope
-            value: '{"inputs":{"scenes":{{workflow.parameters.scenes}},"make_previews":{{workflow.parameters.make_previews}}},"band":{{inputs.parameters.band}}}'
+            value: '{"inputs":{"scenes":{{workflow.parameters.scenes}},"make_previews":{{workflow.parameters.make_previews}}},"band":{{inputs.parameters.loop-per-band}}}'
           - name: run-prefix
             value: '{{inputs.parameters.run-prefix}}/band-cog'
           - name: if
@@ -126,8 +124,8 @@ spec:
             value: '{{inputs.parameters.upstream-count}}'
     inputs:
       parameters:
-      - name: band
       - name: run-prefix
+      - name: loop-per-band
       - name: upstream-count
     outputs:
       parameters:
@@ -181,6 +179,8 @@ spec:
         value: eyJuYW1lIjoiZ2xvdy5ydW4iLCJpbnB1dHMiOnsic2NlbmVzIjp7InR5cGUiOiJhcnJheSJ9fSwib3V0cHV0cyI6eyJ0b3RhbCI6eyJ0eXBlIjoiaW50ZWdlciIsImRlc2NyaXB0aW9uIjoiTnVtYmVyIG9mIHNjZW5lcyJ9fX0=
       - name: GLOW_SCOPE
         value: '{{inputs.parameters.scope}}'
+      - name: GLOW_LET
+        value: '{{inputs.parameters.let}}'
       - name: GLOW_IF
         value: '{{inputs.parameters.if}}'
       - name: GLOW_RUN_PREFIX
@@ -206,6 +206,8 @@ spec:
       parameters:
       - name: raw-with
       - name: scope
+      - name: let
+        default: ''
       - name: if
         default: ''
       - name: run-prefix
@@ -263,6 +265,8 @@ spec:
         value: eyJuYW1lIjoiZ2RhbC50cmFuc2xhdGUiLCJkZXNjcmlwdGlvbiI6IkNvbnZlcnQgYSByYXN0ZXIgd2l0aCBnZGFsX3RyYW5zbGF0ZS4gT3V0cHV0IG1lZGlhIHR5cGUgZm9sbG93cyBgZm9ybWF0YC4iLCJpbnB1dHMiOnsic291cmNlIjp7InR5cGUiOiJmaWxlIiwibWVkaWFfdHlwZSI6WyJpbWFnZS90aWZmOyBhcHBsaWNhdGlvbj1nZW90aWZmIiwiaW1hZ2UvanAyIiwiYXBwbGljYXRpb24veC1uZXRjZGYiLCJhcHBsaWNhdGlvbi92bmQuZ2RhbC52cnQreG1sIl0sInJlbW90ZSI6dHJ1ZX0sInN1YmRhdGFzZXQiOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoibmV0Q0RGIHZhcmlhYmxlLCByZWFkIGFzIE5FVENERjpcIjxzb3VyY2U+XCI6PHN1YmRhdGFzZXQ+LiJ9LCJmb3JtYXQiOnsidHlwZSI6InN0cmluZyIsImVudW0iOlsiQ09HIiwiR1RpZmYiLCJQTkciXSwiZGVmYXVsdCI6IkNPRyJ9LCJjcmVhdGlvbl9vcHRpb25zIjp7InR5cGUiOiJvYmplY3QiLCJhZGRpdGlvbmFsUHJvcGVydGllcyI6eyJ0eXBlIjoic3RyaW5nIn19fSwicmVxdWlyZWQiOlsic291cmNlIl0sIm91dHB1dHMiOnsicmVzdWx0Ijp7InR5cGUiOiJmaWxlIiwicGF0aCI6Im91dC57ZXh0fSIsIm1lZGlhX3R5cGVfZnJvbSI6ImZvcm1hdCIsIm1lZGlhX3R5cGVzIjp7IkNPRyI6ImltYWdlL3RpZmY7IGFwcGxpY2F0aW9uPWdlb3RpZmY7IHByb2ZpbGU9Y2xvdWQtb3B0aW1pemVkIiwiR1RpZmYiOiJpbWFnZS90aWZmOyBhcHBsaWNhdGlvbj1nZW90aWZmIiwiUE5HIjoiaW1hZ2UvcG5nIn19fSwiY29tbWFuZCI6WyJnZGFsX3RyYW5zbGF0ZV93cmFwcGVyIl19
       - name: GLOW_SCOPE
         value: '{{inputs.parameters.scope}}'
+      - name: GLOW_LET
+        value: '{{inputs.parameters.let}}'
       - name: GLOW_IF
         value: '{{inputs.parameters.if}}'
       - name: GLOW_RUN_PREFIX
@@ -297,6 +301,8 @@ spec:
       parameters:
       - name: raw-with
       - name: scope
+      - name: let
+        default: ''
       - name: if
         default: ''
       - name: run-prefix
@@ -356,6 +362,8 @@ spec:
         value: eyJuYW1lIjoiZ2RhbC50cmFuc2xhdGUiLCJkZXNjcmlwdGlvbiI6IkNvbnZlcnQgYSByYXN0ZXIgd2l0aCBnZGFsX3RyYW5zbGF0ZS4gT3V0cHV0IG1lZGlhIHR5cGUgZm9sbG93cyBgZm9ybWF0YC4iLCJpbnB1dHMiOnsic291cmNlIjp7InR5cGUiOiJmaWxlIiwibWVkaWFfdHlwZSI6WyJpbWFnZS90aWZmOyBhcHBsaWNhdGlvbj1nZW90aWZmIiwiaW1hZ2UvanAyIiwiYXBwbGljYXRpb24veC1uZXRjZGYiLCJhcHBsaWNhdGlvbi92bmQuZ2RhbC52cnQreG1sIl0sInJlbW90ZSI6dHJ1ZX0sInN1YmRhdGFzZXQiOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoibmV0Q0RGIHZhcmlhYmxlLCByZWFkIGFzIE5FVENERjpcIjxzb3VyY2U+XCI6PHN1YmRhdGFzZXQ+LiJ9LCJmb3JtYXQiOnsidHlwZSI6InN0cmluZyIsImVudW0iOlsiQ09HIiwiR1RpZmYiLCJQTkciXSwiZGVmYXVsdCI6IkNPRyJ9LCJjcmVhdGlvbl9vcHRpb25zIjp7InR5cGUiOiJvYmplY3QiLCJhZGRpdGlvbmFsUHJvcGVydGllcyI6eyJ0eXBlIjoic3RyaW5nIn19fSwicmVxdWlyZWQiOlsic291cmNlIl0sIm91dHB1dHMiOnsicmVzdWx0Ijp7InR5cGUiOiJmaWxlIiwicGF0aCI6Im91dC57ZXh0fSIsIm1lZGlhX3R5cGVfZnJvbSI6ImZvcm1hdCIsIm1lZGlhX3R5cGVzIjp7IkNPRyI6ImltYWdlL3RpZmY7IGFwcGxpY2F0aW9uPWdlb3RpZmY7IHByb2ZpbGU9Y2xvdWQtb3B0aW1pemVkIiwiR1RpZmYiOiJpbWFnZS90aWZmOyBhcHBsaWNhdGlvbj1nZW90aWZmIiwiUE5HIjoiaW1hZ2UvcG5nIn19fSwiY29tbWFuZCI6WyJnZGFsX3RyYW5zbGF0ZV93cmFwcGVyIl19
       - name: GLOW_SCOPE
         value: '{{inputs.parameters.scope}}'
+      - name: GLOW_LET
+        value: '{{inputs.parameters.let}}'
       - name: GLOW_IF
         value: '{{inputs.parameters.if}}'
       - name: GLOW_RUN_PREFIX
@@ -385,6 +393,8 @@ spec:
       parameters:
       - name: raw-with
       - name: scope
+      - name: let
+        default: ''
       - name: if
         default: ''
       - name: run-prefix
@@ -442,14 +452,14 @@ spec:
         value: eyJuYW1lIjoiZ2RhbC5pbmZvIiwiZGVzY3JpcHRpb24iOiJSZXBvcnQgcmFzdGVyIG1ldGFkYXRhIHdpdGggZ2RhbGluZm8gYXMgSlNPTi4iLCJpbnB1dHMiOnsic291cmNlIjp7InR5cGUiOiJmaWxlIiwibWVkaWFfdHlwZSI6IioiLCJyZW1vdGUiOnRydWV9LCJzdGF0cyI6eyJ0eXBlIjoiYm9vbGVhbiIsImRlc2NyaXB0aW9uIjoiQ29tcHV0ZSBiYW5kIHN0YXRpc3RpY3MuIiwiZGVmYXVsdCI6ZmFsc2V9fSwicmVxdWlyZWQiOlsic291cmNlIl0sIm91dHB1dHMiOnsiaW5mbyI6eyJ0eXBlIjoib2JqZWN0IiwiZGVzY3JpcHRpb24iOiJUaGUgZ2RhbGluZm8gLWpzb24gZG9jdW1lbnQuIn19LCJjb21tYW5kIjpbImdkYWxpbmZvX3dyYXBwZXIiXX0=
       - name: GLOW_SCOPE
         value: '{{inputs.parameters.scope}}'
+      - name: GLOW_LET
+        value: '{{inputs.parameters.let}}'
       - name: GLOW_IF
         value: '{{inputs.parameters.if}}'
       - name: GLOW_RUN_PREFIX
         value: '{{inputs.parameters.run-prefix}}'
       - name: GLOW_STAGING
         value: copy
-      - name: GLOW_UPSTREAM_per_scene
-        value: '{{inputs.parameters.upstream-per-scene}}'
       volumeMounts:
       - name: glow
         mountPath: /glow
@@ -469,10 +479,11 @@ spec:
       parameters:
       - name: raw-with
       - name: scope
+      - name: let
+        default: ''
       - name: if
         default: ''
       - name: run-prefix
-      - name: upstream-per-scene
     outputs:
       parameters:
       - name: outputs

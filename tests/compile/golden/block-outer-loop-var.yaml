@@ -1,0 +1,154 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: block-outer-loop-var-
+  namespace: tenant-acme
+spec:
+  entrypoint: main
+  serviceAccountName: glow-runner
+  templates:
+  - name: main
+    dag:
+      tasks:
+      - name: per-scene
+        template: per-scene-block
+        withParam: '{{workflow.parameters.scenes}}'
+        arguments:
+          parameters:
+          - name: loop-per-scene
+            value: '{{item}}'
+          - name: run-prefix
+            value: s3://artifact-bucket-acme/runs/{{workflow.uid}}/steps/per-scene/{{item}}
+  - name: per-scene-block
+    dag:
+      tasks:
+      - name: per-band
+        template: per-band-block
+        withParam: '{{=toJson(jsonpath(inputs.parameters[''loop-per-scene''], ''$.bands''))}}'
+        arguments:
+          parameters:
+          - name: run-prefix
+            value: '{{inputs.parameters.run-prefix}}/per-band/{{item}}'
+          - name: loop-per-scene
+            value: '{{inputs.parameters.loop-per-scene}}'
+          - name: loop-per-band
+            value: '{{item}}'
+    inputs:
+      parameters:
+      - name: loop-per-scene
+      - name: run-prefix
+    outputs:
+      parameters:
+      - name: cogs
+        valueFrom:
+          parameter: '{{tasks.per-band.outputs.parameters.cogs}}'
+  - name: per-band-block
+    dag:
+      tasks:
+      - name: cog
+        template: tool-gdal-translate
+        arguments:
+          parameters:
+          - name: raw-with
+            value: eyJzb3VyY2UiOiIke3sgYmFuZC5wYXRoIH19Iiwic3ViZGF0YXNldCI6IiR7eyBzY2VuZS5pZCB9fSJ9
+          - name: scope
+            value: '{"inputs":{"scenes":{{workflow.parameters.scenes}}},"scene":{{inputs.parameters.loop-per-scene}},"band":{{inputs.parameters.loop-per-band}}}'
+          - name: run-prefix
+            value: '{{inputs.parameters.run-prefix}}/cog'
+    inputs:
+      parameters:
+      - name: run-prefix
+      - name: loop-per-scene
+      - name: loop-per-band
+    outputs:
+      parameters:
+      - name: cogs
+        valueFrom:
+          parameter: '{{tasks.cog.outputs.parameters.result}}'
+  - name: tool-gdal-translate
+    initContainers:
+    - name: glow-init
+      image: ghcr.io/sparkgeo/glow-exec:test
+      command:
+      - /glow-exec
+      - install
+      - /glow/exec
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    volumes:
+    - name: glow
+      emptyDir: {}
+    - name: work
+      emptyDir:
+        sizeLimit: 20Gi
+    container:
+      image: local/gdal:dev
+      args:
+      - gdal_translate_wrapper
+      command:
+      - /glow/exec
+      - run
+      - --tool
+      - gdal.translate@1
+      - --
+      env:
+      - name: GLOW_RAW_WITH
+        value: '{{inputs.parameters.raw-with}}'
+      - name: GLOW_MANIFEST
+        value: eyJuYW1lIjoiZ2RhbC50cmFuc2xhdGUiLCJkZXNjcmlwdGlvbiI6IkNvbnZlcnQgYSByYXN0ZXIgd2l0aCBnZGFsX3RyYW5zbGF0ZS4gT3V0cHV0IG1lZGlhIHR5cGUgZm9sbG93cyBgZm9ybWF0YC4iLCJpbnB1dHMiOnsic291cmNlIjp7InR5cGUiOiJmaWxlIiwibWVkaWFfdHlwZSI6WyJpbWFnZS90aWZmOyBhcHBsaWNhdGlvbj1nZW90aWZmIiwiaW1hZ2UvanAyIiwiYXBwbGljYXRpb24veC1uZXRjZGYiLCJhcHBsaWNhdGlvbi92bmQuZ2RhbC52cnQreG1sIl0sInJlbW90ZSI6dHJ1ZX0sInN1YmRhdGFzZXQiOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoibmV0Q0RGIHZhcmlhYmxlLCByZWFkIGFzIE5FVENERjpcIjxzb3VyY2U+XCI6PHN1YmRhdGFzZXQ+LiJ9LCJmb3JtYXQiOnsidHlwZSI6InN0cmluZyIsImVudW0iOlsiQ09HIiwiR1RpZmYiLCJQTkciXSwiZGVmYXVsdCI6IkNPRyJ9LCJjcmVhdGlvbl9vcHRpb25zIjp7InR5cGUiOiJvYmplY3QiLCJhZGRpdGlvbmFsUHJvcGVydGllcyI6eyJ0eXBlIjoic3RyaW5nIn19fSwicmVxdWlyZWQiOlsic291cmNlIl0sIm91dHB1dHMiOnsicmVzdWx0Ijp7InR5cGUiOiJmaWxlIiwicGF0aCI6Im91dC57ZXh0fSIsIm1lZGlhX3R5cGVfZnJvbSI6ImZvcm1hdCIsIm1lZGlhX3R5cGVzIjp7IkNPRyI6ImltYWdlL3RpZmY7IGFwcGxpY2F0aW9uPWdlb3RpZmY7IHByb2ZpbGU9Y2xvdWQtb3B0aW1pemVkIiwiR1RpZmYiOiJpbWFnZS90aWZmOyBhcHBsaWNhdGlvbj1nZW90aWZmIiwiUE5HIjoiaW1hZ2UvcG5nIn19fSwiY29tbWFuZCI6WyJnZGFsX3RyYW5zbGF0ZV93cmFwcGVyIl19
+      - name: GLOW_SCOPE
+        value: '{{inputs.parameters.scope}}'
+      - name: GLOW_LET
+        value: '{{inputs.parameters.let}}'
+      - name: GLOW_IF
+        value: '{{inputs.parameters.if}}'
+      - name: GLOW_RUN_PREFIX
+        value: '{{inputs.parameters.run-prefix}}'
+      - name: GLOW_STAGING
+        value: copy
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+        readOnly: true
+      - name: work
+        mountPath: /work
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    inputs:
+      parameters:
+      - name: raw-with
+      - name: scope
+      - name: let
+        default: ''
+      - name: if
+        default: ''
+      - name: run-prefix
+    outputs:
+      parameters:
+      - name: outputs
+        valueFrom:
+          path: /work/outputs.resolved.json
+      - name: result
+        valueFrom:
+          default: 'null'
+          path: /work/outputs/result.json
+  arguments:
+    parameters:
+    - name: scenes

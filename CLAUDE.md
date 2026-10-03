@@ -80,6 +80,13 @@ GLOW_RUNNER_TESTS=1 uv run pytest tests/runner -m "not integration"   # runner t
 uv run glow toolpack lint toolpacks/*/manifest.yaml   # lint toolpack manifests
 uv run glow toolpack lock --check    # registry.lock.yaml matches the manifests
 uv run glow toolpack lock            # regenerate the lock after a manifest change
+_Add your build and test commands here_
+
+```bash
+# Example:
+# npm install
+# npm test
+>>>>>>> be33360 (bd init: initialize beads issue tracking)
 ```
 
 ## Architecture Overview
@@ -106,3 +113,8 @@ uv run glow toolpack lock            # regenerate the lock after a manifest chan
 
 - Models use `extra="forbid"`. Cross-field rules raise `PydanticCustomError` with a type starting with `glow_`.
 - No em-dashes in code or docs.
+_Add a brief overview of your project architecture_
+
+## Conventions & Patterns
+
+_Add your project-specific conventions here_

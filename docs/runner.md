@@ -76,7 +76,9 @@ starts.
   start.
 
 The runner accepts what the compiler accepts. A construct that fails
-`glow compile` with `GLOW-E050` also fails `glow run`. Steps with `secrets`
+`glow compile` with `GLOW-E050` also fails `glow run`. The runner evaluates
+the `let` bindings of a `for_each` once per item, before its members run, and
+passes their values to glow-exec in the scope. Steps with `secrets`
 are refused, because there is no Kubernetes secret to mount. `resources` and
 `retries` have no effect locally. `timeout` stops the container.
 

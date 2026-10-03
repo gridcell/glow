@@ -1,0 +1,29 @@
+# A top-level step consumes the output of a nested fan-out: one entry per
+# scene, each an array with one entry per band, array<array<file>>.
+name: block-nested-fan-in
+inputs:
+  scenes: { type: array }
+steps:
+  - id: per_scene
+    for_each: ${{ inputs.scenes }}
+    as: scene
+    steps:
+      - id: per_band
+        for_each: ${{ scene.bands }}
+        as: band
+        steps:
+          - id: cog
+            uses: gdal.translate@1
+            with:
+              source: ${{ band.path }}
+        outputs:
+          cogs: ${{ steps.cog.outputs.result }}
+    outputs:
+      cogs: ${{ steps.per_band.outputs.cogs }}
+  - id: report
+    run: |
+      python3 -c 'import json; cogs = json.load(open("/work/inputs.json"))["cogs"]; json.dump({"count": sum(map(len, cogs))}, open("/work/outputs.json", "w"))'
+    with:
+      cogs: ${{ steps.per_scene.outputs.cogs }}
+    outputs:
+      count: { type: integer }

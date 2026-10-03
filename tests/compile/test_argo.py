@@ -7,7 +7,7 @@ import yaml
 from glow.compile import CompileError, CompileOptions, compile_workflow
 from glow.compile.argo import _item_value
 from glow.compile.encoding import decode_json, decode_text
-from glow.types import Group, Scalar, Unknown
+from glow.types import Group, Scalar, Unknown, render
 from glow.validate import Code
 from tests.compile.conftest import (
     COMPILED,
@@ -61,7 +61,7 @@ def test_sst_matches_appendix_d() -> None:
     assert per_item["template"] == "per-item-block"
     assert per_item["depends"] == "items"
     assert per_item["withParam"] == "{{tasks.items.outputs.parameters.groups}}"
-    assert arguments(per_item)["g"] == "{{item}}"
+    assert arguments(per_item)["loop-per-item"] == "{{item}}"
     publish = task(main, "publish")
     assert publish["depends"] == "per-item"
     assert arguments(publish)["upstream-per-item"] == (
@@ -148,7 +148,7 @@ def test_scope_carries_inputs_and_the_loop_variable() -> None:
     cog = task(template(workflow, "per-item-block"), "cog")
     scope = arguments(cog)["scope"]
     assert scope.startswith('{"inputs":{"source":{{workflow.parameters.source}},')
-    assert scope.endswith(',"g":{{inputs.parameters.g}}}')
+    assert scope.endswith(',"g":{{inputs.parameters.loop-per-item}}}')
 
 
 def test_block_if_reaches_every_member_with_its_upstream() -> None:
@@ -167,14 +167,12 @@ def test_max_parallelism_wraps_the_fan_out() -> None:
     main = template(workflow, "main")
     per_scene = task(main, "per-scene")
     assert per_scene["template"] == "per-scene-fanout"
-    assert arguments(per_scene) == {
-        "task-count-outputs": "{{tasks.count.outputs.parameters.outputs}}"
-    }
+    assert arguments(per_scene) == {"upstream-count": "{{tasks.count.outputs.parameters.outputs}}"}
     wrapper = template(workflow, "per-scene-fanout")
     assert wrapper["parallelism"] == 4
     inner = task(wrapper, "per-scene")
     assert inner["withParam"] == "{{workflow.parameters.scenes}}"
-    assert arguments(inner)["upstream-count"] == "{{inputs.parameters.task-count-outputs}}"
+    assert arguments(inner)["upstream-count"] == "{{inputs.parameters.upstream-count}}"
     assert wrapper["outputs"]["parameters"] == [
         {
             "name": "previews",
@@ -188,7 +186,9 @@ def test_max_parallelism_wraps_the_fan_out() -> None:
 def test_nested_for_each_reads_a_field_of_the_loop_variable() -> None:
     workflow = compiled(EXAMPLES / "minimal-if-script.yaml")
     per_band = task(template(workflow, "per-scene-block"), "per-band")
-    assert per_band["withParam"] == "{{=toJson(jsonpath(inputs.parameters.scene, '$.bands'))}}"
+    assert per_band["withParam"] == (
+        "{{=toJson(jsonpath(inputs.parameters['loop-per-scene'], '$.bands'))}}"
+    )
 
 
 def test_single_step_for_each_uses_with_param_on_the_tool() -> None:
@@ -275,21 +275,153 @@ def test_string_items_are_quoted_as_json() -> None:
     assert _item_value(Unknown("later")) == "{{item}}"
 
 
-@pytest.mark.parametrize(
-    ("fixture", "location", "words"),
-    [
-        ("block-outer-step-output.yaml", "cog.with.subdataset", "steps.items is outside block"),
-        ("block-outer-let.yaml", "cog.with.source", "let binding 'path'"),
-        ("block-outer-loop-var.yaml", "cog.with.subdataset", "loop variable 'scene'"),
-    ],
-)
-def test_outer_references_in_blocks_are_not_yet_supported(
-    fixture: str, location: str, words: str
-) -> None:
-    (error,) = compile_errors(load_ir(FIXTURES / fixture))
-    assert error.code == Code.NOT_YET_SUPPORTED
-    assert error.location == location
-    assert words in error.render()
+def inputs_of(dag_template: dict) -> list[str]:
+    return [p["name"] for p in dag_template.get("inputs", {}).get("parameters", [])]
+
+
+def test_outer_step_output_is_threaded_into_the_block() -> None:
+    workflow = compiled(FIXTURES / "block-outer-step-output.yaml")
+    per_item = task(template(workflow, "main"), "per-item")
+    assert arguments(per_item)["upstream-items"] == "{{tasks.items.outputs.parameters.outputs}}"
+    block = template(workflow, "per-item-block")
+    assert set(inputs_of(block)) == {
+        "loop-per-item",
+        "run-prefix",
+        "upstream-items",
+        "task-items-groups",
+    }
+    cog = task(block, "cog")
+    assert arguments(cog)["upstream-items"] == "{{inputs.parameters.upstream-items}}"
+    # Two levels down, and as the operand of a nested for_each.
+    per_group = task(block, "per-group")
+    assert per_group["withParam"] == "{{inputs.parameters.task-items-groups}}"
+    assert arguments(per_item)["task-items-groups"] == "{{tasks.items.outputs.parameters.groups}}"
+    assert arguments(per_group)["upstream-items"] == "{{inputs.parameters.upstream-items}}"
+    pair = task(template(workflow, "per-group-block"), "pair")
+    assert arguments(pair)["upstream-items"] == "{{inputs.parameters.upstream-items}}"
+    env = {e["name"] for e in template(workflow, "tool-gdal-translate")["container"]["env"]}
+    assert "GLOW_UPSTREAM_items" in env
+
+
+def test_lets_travel_as_expressions_with_their_own_references() -> None:
+    workflow = compiled(FIXTURES / "block-outer-let.yaml")
+    outer = template(workflow, "per-source-block")
+    cog = arguments(task(outer, "cog"))
+    assert decode_json(cog["let"]) == [{"name": "path", "value": "${{ s.path }}"}]
+    assert cog["scope"].endswith(',"s":{{inputs.parameters.loop-per-source}}}')
+    inner = template(workflow, "per-band-block")
+    assert set(inputs_of(inner)) == {"run-prefix", "loop-per-source", "loop-per-band"}
+    band_cog = arguments(task(inner, "band-cog"))
+    # The inner let uses `label`, so the member gets every let it depends
+    # on, outer block first, and both loop variables those lets use.
+    assert decode_json(band_cog["let"]) == [
+        {"name": "path", "value": "${{ s.path }}"},
+        {"name": "label", "value": "${{ s.name }}-cog"},
+        {"name": "variable", "value": "${{ label }}-${{ band }}"},
+    ]
+    assert band_cog["scope"].endswith(
+        ',"s":{{inputs.parameters.loop-per-source}},"band":{{inputs.parameters.loop-per-band}}}'
+    )
+    per_band = arguments(task(outer, "per-band"))
+    assert per_band["loop-per-source"] == "{{inputs.parameters.loop-per-source}}"
+    assert per_band["loop-per-band"] == "{{item}}"
+
+
+def test_steps_without_lets_get_no_let_argument() -> None:
+    workflow = compiled(EXAMPLES / "sst-ingest.yaml")
+    container = template(workflow, "tool-gdal-translate")
+    assert {"name": "let", "default": ""} in container["inputs"]["parameters"]
+    assert {"name": "GLOW_LET", "value": "{{inputs.parameters.let}}"} in container["container"][
+        "env"
+    ]
+    assert "let" not in arguments(task(template(workflow, "per-item-block"), "cog"))
+
+
+def test_loop_variable_two_levels_down() -> None:
+    workflow = compiled(FIXTURES / "block-outer-loop-var.yaml")
+    outer = template(workflow, "per-scene-block")
+    per_band = arguments(task(outer, "per-band"))
+    assert per_band["loop-per-scene"] == "{{inputs.parameters.loop-per-scene}}"
+    inner = template(workflow, "per-band-block")
+    assert set(inputs_of(inner)) == {"run-prefix", "loop-per-band", "loop-per-scene"}
+    scope = arguments(task(inner, "cog"))["scope"]
+    assert '"band":{{inputs.parameters.loop-per-band}}' in scope
+    assert '"scene":{{inputs.parameters.loop-per-scene}}' in scope
+
+
+def test_nested_fan_in_is_an_array_of_arrays() -> None:
+    path = FIXTURES / "block-nested-fan-in.yaml"
+    (edge,) = [e for e in load_ir(path).edges if e.target_step == "report"]
+    assert render(edge.type) == (
+        "array<array<file[image/tiff; application=geotiff; profile=cloud-optimized]>>"
+    )
+    workflow = compiled(path)
+    report = arguments(task(template(workflow, "main"), "report"))
+    # Argo aggregates each item's JSON array, so the value nests.
+    assert report["upstream-per-scene"] == (
+        '{"outputs":{"cogs":{{tasks.per-scene.outputs.parameters.cogs}}},"skipped":false}'
+    )
+    assert template(workflow, "per-scene-block")["outputs"]["parameters"] == [
+        {"name": "cogs", "valueFrom": {"parameter": "{{tasks.per-band.outputs.parameters.cogs}}"}}
+    ]
+
+
+def test_shadowed_names_one_step_needs_are_not_yet_supported(ir_from_yaml: IrFromYaml) -> None:
+    workflow = ir_from_yaml(
+        """
+name: t
+inputs:
+  scenes: { type: array }
+steps:
+  - id: per_scene
+    for_each: ${{ inputs.scenes }}
+    as: x
+    let:
+      scene_id: ${{ x.id }}
+    steps:
+      - id: per_band
+        for_each: ${{ x.bands }}
+        as: x
+        steps:
+          - id: cog
+            uses: gdal.translate@1
+            with:
+              source: ${{ x.path }}
+              subdataset: ${{ scene_id }}
+        outputs:
+          cogs: ${{ steps.cog.outputs.result }}
+"""
+    )
+    (error,) = compile_errors(workflow)
+    assert (error.code, error.location) == (Code.NOT_YET_SUPPORTED, "cog")
+    assert "the loop variable of 'per_scene' and the loop variable of 'per_band'" in error.render()
+
+
+def test_shadowing_alone_compiles(ir_from_yaml: IrFromYaml) -> None:
+    workflow = ir_from_yaml(
+        """
+name: t
+inputs:
+  scenes: { type: array }
+steps:
+  - id: per_scene
+    for_each: ${{ inputs.scenes }}
+    as: x
+    steps:
+      - id: per_band
+        for_each: ${{ x.bands }}
+        as: x
+        steps:
+          - id: info
+            uses: gdal.info@1
+            with:
+              source: ${{ x.path }}
+        outputs:
+          infos: ${{ steps.info.outputs.info }}
+"""
+    )
+    scope = arguments(task(template(compiled_ir(workflow), "per-band-block"), "info"))["scope"]
+    assert scope.endswith(',"x":{{inputs.parameters.loop-per-band}}}')
 
 
 BLOCK = """
@@ -345,7 +477,7 @@ def test_block_if_on_inputs_and_steps_compiles(ir_from_yaml: IrFromYaml) -> None
     assert arguments(per_source)["upstream-first"] == "{{tasks.first.outputs.parameters.outputs}}"
 
 
-def test_block_if_on_an_outer_loop_variable_is_not_yet_supported(
+def test_block_if_on_an_outer_loop_variable_reaches_the_members(
     ir_from_yaml: IrFromYaml,
 ) -> None:
     workflow = ir_from_yaml(
@@ -373,9 +505,9 @@ steps:
       infos: ${{ steps.per_band.outputs.infos }}
 """
     )
-    (error,) = compile_errors(workflow)
-    assert (error.code, error.location) == (Code.NOT_YET_SUPPORTED, "per_band.if")
-    assert "loop variable 'scene'" in error.render()
+    info = arguments(task(template(compiled_ir(workflow), "per-band-block"), "info"))
+    assert info["if"] == "scene.ok"
+    assert '"scene":{{inputs.parameters.loop-per-scene}}' in info["scope"]
 
 
 def test_results_reference_is_not_yet_supported(ir_from_yaml: IrFromYaml) -> None:

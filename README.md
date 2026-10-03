@@ -127,15 +127,22 @@ which gets the step's `with` block as base64 and evaluates the expressions in
 the pod. Pass workflow parameter values as JSON. For example, a string input
 takes `"s3://bucket/sst/"`, with the quotes.
 
-The compiler has these limits for now:
+A step inside a block can use anything in its scope: an outer step output, a
+`let` name, or the loop variable of any enclosing block. An Argo template
+sees only its own inputs, so the compiler adds a template input for each
+outer value a block uses, at every level down to the step. See
+[Values inside blocks](docs/glow-exec.md#values-inside-blocks).
 
-- A step inside a block can use workflow inputs, its own steps, and the loop
-  variable of its block. An outer step output, a `let` name, or the loop
-  variable of an enclosing block fails with `GLOW-E050`.
+The compiler has these limits for now (`GLOW-E050`):
+
 - A block output must be one member output, `${{ steps.<id>.outputs.<name> }}`.
-- A `for_each` value must be one reference: a step output, an input, or the
-  loop variable of the block, with optional field names after it.
-- The `if` of a block can use inputs and steps beside the block.
+- A `for_each` value must be one reference: a step output, an input, or a
+  loop variable, with optional field names after it. A `let` name is not
+  accepted.
+- `steps.<id>.results` is not supported.
+- One step cannot use two variables with the same name. This happens when a
+  `let` or block `if` uses an outer name that an inner loop variable or `let`
+  hides. Rename the inner one.
 
 The golden files in `tests/compile/golden/` pin the compiler output. After a
 compiler change, refresh them and review the diff:

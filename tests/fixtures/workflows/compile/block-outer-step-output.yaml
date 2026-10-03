@@ -1,8 +1,8 @@
-# A block member uses an output of a step outside the block.
+# Block members use an output of a step outside the block, one and two
+# levels down, and a nested for_each iterates over it.
 name: block-outer-step-output
 inputs:
   root: { type: uri }
-  color_table: { type: file, media_type: text/plain }
 steps:
   - id: items
     uses: fs.group
@@ -20,5 +20,16 @@ steps:
         with:
           source: ${{ g.files[0].path }}
           subdataset: ${{ steps.items.outputs.groups[0].key }}
+      - id: per_group
+        for_each: ${{ steps.items.outputs.groups }}
+        as: other
+        steps:
+          - id: pair
+            uses: gdal.translate@1
+            with:
+              source: ${{ other.files[0].path }}
+              subdataset: ${{ steps.items.outputs.groups[0].key }}
+        outputs:
+          pairs: ${{ steps.pair.outputs.result }}
     outputs:
       result: ${{ steps.cog.outputs.result }}

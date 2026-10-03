@@ -32,8 +32,6 @@ spec:
             value: '{"inputs":{"root":{{workflow.parameters.root}}},"tif":{{item}}}'
           - name: run-prefix
             value: s3://artifact-bucket-acme/runs/{{workflow.uid}}/steps/info/{{item}}
-          - name: upstream-tiffs
-            value: '{{tasks.tiffs.outputs.parameters.outputs}}'
       - name: summary
         depends: info
         template: script-summary
@@ -93,6 +91,8 @@ spec:
         value: eyJuYW1lIjoiZnMuZ2xvYiIsImRlc2NyaXB0aW9uIjoiTGlzdCBmaWxlcyB1bmRlciByb290IHdob3NlIHBhdGggcmVsYXRpdmUgdG8gcm9vdCBtYXRjaGVzIGEgZ2xvYiBwYXR0ZXJuLiIsImlucHV0cyI6eyJyb290Ijp7InR5cGUiOiJzdHJpbmciLCJkZXNjcmlwdGlvbiI6IlJlZ2lzdGVyZWQgbG9jYXRpb24gdG8gbGlzdCwgc3VjaCBhcyBzMzovL2J1Y2tldC9wcmVmaXgvLiIsImZvcm1hdCI6InVyaSJ9LCJwYXR0ZXJuIjp7InR5cGUiOiJzdHJpbmciLCJkZXNjcmlwdGlvbiI6Ikdsb2IgcGF0dGVybiwgc3VjaCBhcyAqKi8qLnRpZi4ifX0sInJlcXVpcmVkIjpbInJvb3QiLCJwYXR0ZXJuIl0sIm91dHB1dHMiOnsiZmlsZXMiOnsidHlwZSI6ImFycmF5IiwiZGVzY3JpcHRpb24iOiJNYXRjaGluZyBmaWxlcy4iLCJpdGVtcyI6eyJ0eXBlIjoiZmlsZSJ9fX19
       - name: GLOW_SCOPE
         value: '{{inputs.parameters.scope}}'
+      - name: GLOW_LET
+        value: '{{inputs.parameters.let}}'
       - name: GLOW_IF
         value: '{{inputs.parameters.if}}'
       - name: GLOW_RUN_PREFIX
@@ -118,6 +118,8 @@ spec:
       parameters:
       - name: raw-with
       - name: scope
+      - name: let
+        default: ''
       - name: if
         default: ''
       - name: run-prefix
@@ -173,14 +175,14 @@ spec:
         value: eyJuYW1lIjoiZ2RhbC5pbmZvIiwiZGVzY3JpcHRpb24iOiJSZXBvcnQgcmFzdGVyIG1ldGFkYXRhIHdpdGggZ2RhbGluZm8gYXMgSlNPTi4iLCJpbnB1dHMiOnsic291cmNlIjp7InR5cGUiOiJmaWxlIiwibWVkaWFfdHlwZSI6IioiLCJyZW1vdGUiOnRydWV9LCJzdGF0cyI6eyJ0eXBlIjoiYm9vbGVhbiIsImRlc2NyaXB0aW9uIjoiQ29tcHV0ZSBiYW5kIHN0YXRpc3RpY3MuIiwiZGVmYXVsdCI6ZmFsc2V9fSwicmVxdWlyZWQiOlsic291cmNlIl0sIm91dHB1dHMiOnsiaW5mbyI6eyJ0eXBlIjoib2JqZWN0IiwiZGVzY3JpcHRpb24iOiJUaGUgZ2RhbGluZm8gLWpzb24gZG9jdW1lbnQuIn19LCJjb21tYW5kIjpbImdkYWxpbmZvX3dyYXBwZXIiXX0=
       - name: GLOW_SCOPE
         value: '{{inputs.parameters.scope}}'
+      - name: GLOW_LET
+        value: '{{inputs.parameters.let}}'
       - name: GLOW_IF
         value: '{{inputs.parameters.if}}'
       - name: GLOW_RUN_PREFIX
         value: '{{inputs.parameters.run-prefix}}'
       - name: GLOW_STAGING
         value: copy
-      - name: GLOW_UPSTREAM_tiffs
-        value: '{{inputs.parameters.upstream-tiffs}}'
       volumeMounts:
       - name: glow
         mountPath: /glow
@@ -200,10 +202,11 @@ spec:
       parameters:
       - name: raw-with
       - name: scope
+      - name: let
+        default: ''
       - name: if
         default: ''
       - name: run-prefix
-      - name: upstream-tiffs
     outputs:
       parameters:
       - name: outputs
@@ -260,6 +263,8 @@ spec:
         value: eyJuYW1lIjoiZ2xvdy5ydW4iLCJpbnB1dHMiOnsiaW5mb3MiOnsidHlwZSI6ImFycmF5In19LCJvdXRwdXRzIjp7ImNvdW50Ijp7InR5cGUiOiJpbnRlZ2VyIn19fQ==
       - name: GLOW_SCOPE
         value: '{{inputs.parameters.scope}}'
+      - name: GLOW_LET
+        value: '{{inputs.parameters.let}}'
       - name: GLOW_IF
         value: '{{inputs.parameters.if}}'
       - name: GLOW_RUN_PREFIX
@@ -287,6 +292,8 @@ spec:
       parameters:
       - name: raw-with
       - name: scope
+      - name: let
+        default: ''
       - name: if
         default: ''
       - name: run-prefix

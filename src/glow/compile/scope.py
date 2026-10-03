@@ -1,21 +1,26 @@
-"""What a compiled step may reference, until scope conversion lands (issue 7).
+"""What a compiled step reads from outside its own task (plan section 6.5).
 
-An Argo template sees only its own inputs and the workflow parameters. The
-compiler passes a block template its loop variable and run prefix, so a
-member expression may use:
+An Argo template sees only its own inputs and the workflow parameters, so
+the compiler threads each outer value a block uses down to the steps that
+use it. `environment` computes what the pod of one step needs: the loop
+variables, `let` bindings and upstream steps its expressions use. That
+includes the `if` of each enclosing block, which every member evaluates, and
+the references of each let it uses, because glow-exec evaluates the lets in
+the pod.
 
-- `inputs.*`;
-- `steps.<id>` of a sibling in the same block;
-- the loop variable of its own for_each, and of the block it is in.
+These shapes are still rejected with `GLOW-E050`:
 
-An outer step's output, any `let` name, a loop variable two levels up and
-`steps.<id>.results` are rejected with `GLOW-E050`. A block's `if` may use
-inputs and steps beside the block, whose outputs the compiler threads down
-to the members. A block output must be one member output, written
-`${{ steps.<id>.outputs.<name> }}`.
+- `steps.<id>.results`;
+- an `if` that is not one `${{ }}`, or that holds `{{`;
+- a block output that is not one member output, written
+  `${{ steps.<id>.outputs.<name> }}`;
+- a step that needs two variables with the same name. This happens when a
+  let or block `if` uses an outer name that an inner loop variable or let
+  shadows, because glow-exec has one flat set of variables.
 """
 
 import re
+from dataclasses import dataclass
 
 from glow import ir
 from glow.expressions import ExpressionSyntaxError, find_expressions
@@ -26,13 +31,25 @@ _BLOCK_OUTPUT = re.compile(
     r"\s*\$\{\{\s*steps\.([A-Za-z_][A-Za-z0-9_]*)\.outputs\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}\s*"
 )
 _RESULTS = re.compile(r"steps\.[A-Za-z_][A-Za-z0-9_]*\.results\b")
-# Fields evaluated outside the loop their step opens.
-_OUTSIDE_LOOP = ("for_each", "if")
+# Fields that glow-exec evaluates in the pod of their step. A for_each
+# operand becomes Argo's withParam, and a block output a valueFrom.
+_POD_FIELDS = ("with", "if")
 
-_HINT = (
-    "the compiler cannot pass outer values into a block yet; read the value from a workflow "
-    "input, the block's loop variable or a step inside the block"
-)
+
+@dataclass(frozen=True, slots=True)
+class Environment:
+    """What the pod of one step needs, each part in evaluation order.
+
+    `loops` are the for_each steps whose loop variable is used, outermost
+    first. `lets` are `(step id, name)` pairs, outermost block first and in
+    definition order within one step, so each let comes after the lets it
+    uses. `steps` are the producers whose outputs.resolved.json is used, in
+    workflow order.
+    """
+
+    loops: tuple[str, ...]
+    lets: tuple[tuple[str, str], ...]
+    steps: tuple[str, ...]
 
 
 def check(workflow: ir.Workflow) -> list[GlowError]:
@@ -40,11 +57,12 @@ def check(workflow: ir.Workflow) -> list[GlowError]:
     blocks = {step.parent for step in workflow.steps if step.parent is not None}
     errors = []
     for edge in workflow.edges:
-        problem = _edge_problem(workflow, blocks, edge)
-        if problem is not None:
+        if edge.symbol == "step" and _RESULTS.match(edge.source):
+            message = f"steps.{edge.source_step}.results is not yet supported by the compiler"
             location = f"{edge.target_step}.{edge.target}"
-            message = f"{problem}, in {edge.expression}"
-            errors.append(GlowError(Code.NOT_YET_SUPPORTED, location, message, hint=_HINT))
+            errors.append(
+                GlowError(Code.NOT_YET_SUPPORTED, location, f"{message}, in {edge.expression}")
+            )
     for step in workflow.steps:
         errors += _condition_errors(step)
         for name, value in step.block_outputs.items():
@@ -55,7 +73,44 @@ def check(workflow: ir.Workflow) -> list[GlowError]:
                 )
                 location = f"{step.id}.outputs.{name}"
                 errors.append(GlowError(Code.NOT_YET_SUPPORTED, location, message))
+        if step.id not in blocks:
+            errors += _shadowing_errors(workflow, step, environment(workflow, step))
     return errors
+
+
+def environment(workflow: ir.Workflow, step: ir.Step) -> Environment:
+    """The loop variables, lets and upstream steps the pod of `step` needs."""
+    pending = [edge for edge in workflow.edges_into(step.id) if _field(edge) in _POD_FIELDS]
+    owner = step.parent
+    while owner is not None:
+        pending += [edge for edge in workflow.edges_into(owner) if _field(edge) == "if"]
+        owner = workflow.step(owner).parent
+    loops: set[str] = set()
+    lets: set[tuple[str, str]] = set()
+    steps: set[str] = set()
+    while pending:
+        edge = pending.pop()
+        if edge.symbol == "step" and edge.source_step is not None:
+            steps.add(edge.source_step)
+        elif edge.symbol == "loop" and edge.binder is not None:
+            loops.add(edge.binder)
+        elif edge.symbol == "let" and edge.binder is not None:
+            let = (edge.binder, _root(edge.source))
+            if let not in lets:
+                lets.add(let)
+                target = f"let.{let[1]}"
+                pending += [e for e in workflow.edges_into(let[0]) if e.target == target]
+    order = {each.id: index for index, each in enumerate(workflow.steps)}
+    depth = _depths(workflow)
+
+    def let_order(let: tuple[str, str]) -> tuple[int, int]:
+        return depth[let[0]], list(workflow.step(let[0]).let_values).index(let[1])
+
+    return Environment(
+        loops=tuple(sorted(loops, key=depth.__getitem__)),
+        lets=tuple(sorted(lets, key=let_order)),
+        steps=tuple(sorted(steps, key=order.__getitem__)),
+    )
 
 
 def block_output_source(
@@ -92,69 +147,47 @@ def _condition_errors(step: ir.Step) -> list[GlowError]:
     return [GlowError(Code.NOT_YET_SUPPORTED, f"{step.id}.if", message)]
 
 
-def _edge_problem(workflow: ir.Workflow, blocks: set[str], edge: ir.Edge) -> str | None:
-    target = workflow.step(edge.target_step)
-    field = edge.target.split(".")[0].split("[")[0]
-    if field == "let":
-        # A let binding is only rejected where it is used.
-        return None
-    root = _root(edge.source)
-    if root == "inputs":
-        return None
-    outside = field in _OUTSIDE_LOOP and target.loop is not None
-    if root == "steps":
-        return _step_problem(workflow, target, field, edge)
-    return _name_problem(workflow, blocks, target, root, field, outside=outside)
+def _shadowing_errors(workflow: ir.Workflow, step: ir.Step, needs: Environment) -> list[GlowError]:
+    bound: dict[str, str] = {}
+    errors = []
+    variables = [
+        *(
+            (_loop_variable(workflow, binder), f"the loop variable of '{binder}'")
+            for binder in needs.loops
+        ),
+        *((name, f"let '{name}' of '{binder}'") for binder, name in needs.lets),
+    ]
+    for name, meaning in variables:
+        if name not in bound:
+            bound[name] = meaning
+            continue
+        message = (
+            f"step '{step.id}' needs both {bound[name]} and {meaning}, "
+            "but a compiled step has one variable per name"
+        )
+        hint = "rename the inner loop variable or let"
+        errors.append(GlowError(Code.NOT_YET_SUPPORTED, step.id, message, hint=hint))
+    return errors
+
+
+def _loop_variable(workflow: ir.Workflow, step_id: str) -> str:
+    loop = workflow.step(step_id).loop
+    assert loop is not None, "a loop reference names a for_each step"
+    return loop.variable
+
+
+def _depths(workflow: ir.Workflow) -> dict[str, int]:
+    """How many blocks enclose each step. Blocks come before their members in the IR."""
+    depth: dict[str, int] = {}
+    for step in workflow.steps:
+        depth[step.id] = 0 if step.parent is None else depth[step.parent] + 1
+    return depth
+
+
+def _field(edge: ir.Edge) -> str:
+    return edge.target.split(".")[0].split("[")[0]
 
 
 def _root(source: str) -> str:
     match = _IDENTIFIER.match(source)
     return match.group(0) if match else source
-
-
-def _step_problem(workflow: ir.Workflow, target: ir.Step, field: str, edge: ir.Edge) -> str | None:
-    producer = edge.source_step
-    if producer is None:
-        return None
-    if _RESULTS.match(edge.source):
-        return f"steps.{producer}.results is not yet supported by the compiler"
-    expected_parent = target.id if field == "outputs" else target.parent
-    actual_parent = workflow.step(producer).parent
-    if actual_parent == expected_parent:
-        return None
-    return (
-        f"steps.{producer} is outside block '{target.parent}'; "
-        "a compiled block can only use its own steps, its loop variable and workflow inputs"
-    )
-
-
-def _name_problem(
-    workflow: ir.Workflow,
-    blocks: set[str],
-    target: ir.Step,
-    name: str,
-    field: str,
-    *,
-    outside: bool,
-) -> str | None:
-    owner = target.parent if outside else target.id
-    while owner is not None:
-        step = workflow.step(owner)
-        if name in step.let:
-            return f"let binding '{name}' of '{owner}' is not yet supported by the compiler"
-        if step.loop is not None and step.loop.variable == name:
-            break
-        owner = step.parent
-    if owner is None:
-        return None
-    if field == "if" and target.id in blocks:
-        return (
-            f"the if of block '{target.id}' uses loop variable '{name}'; "
-            "a compiled block if can only use workflow inputs and steps beside the block"
-        )
-    if owner in (target.id, target.parent):
-        return None
-    return (
-        f"loop variable '{name}' belongs to block '{owner}', which encloses '{target.parent}'; "
-        "a compiled block only sees its own loop variable"
-    )

@@ -1,0 +1,171 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: block-outer-let-
+  namespace: tenant-acme
+spec:
+  entrypoint: main
+  serviceAccountName: glow-runner
+  templates:
+  - name: main
+    dag:
+      tasks:
+      - name: per-source
+        template: per-source-block
+        withParam: '{{workflow.parameters.sources}}'
+        arguments:
+          parameters:
+          - name: run-prefix
+            value: s3://artifact-bucket-acme/runs/{{workflow.uid}}/steps/per-source/{{item}}
+          - name: loop-per-source
+            value: '{{item}}'
+  - name: per-source-block
+    dag:
+      tasks:
+      - name: cog
+        template: tool-gdal-translate
+        arguments:
+          parameters:
+          - name: raw-with
+            value: eyJzb3VyY2UiOiIke3sgcGF0aCB9fSJ9
+          - name: scope
+            value: '{"inputs":{"sources":{{workflow.parameters.sources}}},"s":{{inputs.parameters.loop-per-source}}}'
+          - name: run-prefix
+            value: '{{inputs.parameters.run-prefix}}/cog'
+          - name: let
+            value: W3sibmFtZSI6InBhdGgiLCJ2YWx1ZSI6IiR7eyBzLnBhdGggfX0ifV0=
+      - name: per-band
+        template: per-band-block
+        withParam: '{{=toJson(jsonpath(inputs.parameters[''loop-per-source''], ''$.bands''))}}'
+        arguments:
+          parameters:
+          - name: run-prefix
+            value: '{{inputs.parameters.run-prefix}}/per-band/{{item}}'
+          - name: loop-per-source
+            value: '{{inputs.parameters.loop-per-source}}'
+          - name: loop-per-band
+            value: '{{item}}'
+    inputs:
+      parameters:
+      - name: run-prefix
+      - name: loop-per-source
+    outputs:
+      parameters:
+      - name: result
+        valueFrom:
+          parameter: '{{tasks.cog.outputs.parameters.result}}'
+      - name: cogs
+        valueFrom:
+          parameter: '{{tasks.per-band.outputs.parameters.cogs}}'
+  - name: per-band-block
+    dag:
+      tasks:
+      - name: band-cog
+        template: tool-gdal-translate
+        arguments:
+          parameters:
+          - name: raw-with
+            value: eyJzb3VyY2UiOiIke3sgcGF0aCB9fSIsInN1YmRhdGFzZXQiOiIke3sgdmFyaWFibGUgfX0ifQ==
+          - name: scope
+            value: '{"inputs":{"sources":{{workflow.parameters.sources}}},"s":{{inputs.parameters.loop-per-source}},"band":{{inputs.parameters.loop-per-band}}}'
+          - name: run-prefix
+            value: '{{inputs.parameters.run-prefix}}/band-cog'
+          - name: let
+            value: W3sibmFtZSI6InBhdGgiLCJ2YWx1ZSI6IiR7eyBzLnBhdGggfX0ifSx7Im5hbWUiOiJsYWJlbCIsInZhbHVlIjoiJHt7IHMubmFtZSB9fS1jb2cifSx7Im5hbWUiOiJ2YXJpYWJsZSIsInZhbHVlIjoiJHt7IGxhYmVsIH19LSR7eyBiYW5kIH19In1d
+    inputs:
+      parameters:
+      - name: run-prefix
+      - name: loop-per-source
+      - name: loop-per-band
+    outputs:
+      parameters:
+      - name: cogs
+        valueFrom:
+          parameter: '{{tasks.band-cog.outputs.parameters.result}}'
+  - name: tool-gdal-translate
+    initContainers:
+    - name: glow-init
+      image: ghcr.io/sparkgeo/glow-exec:test
+      command:
+      - /glow-exec
+      - install
+      - /glow/exec
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    volumes:
+    - name: glow
+      emptyDir: {}
+    - name: work
+      emptyDir:
+        sizeLimit: 20Gi
+    container:
+      image: local/gdal:dev
+      args:
+      - gdal_translate_wrapper
+      command:
+      - /glow/exec
+      - run
+      - --tool
+      - gdal.translate@1
+      - --
+      env:
+      - name: GLOW_RAW_WITH
+        value: '{{inputs.parameters.raw-with}}'
+      - name: GLOW_MANIFEST
+        value: eyJuYW1lIjoiZ2RhbC50cmFuc2xhdGUiLCJkZXNjcmlwdGlvbiI6IkNvbnZlcnQgYSByYXN0ZXIgd2l0aCBnZGFsX3RyYW5zbGF0ZS4gT3V0cHV0IG1lZGlhIHR5cGUgZm9sbG93cyBgZm9ybWF0YC4iLCJpbnB1dHMiOnsic291cmNlIjp7InR5cGUiOiJmaWxlIiwibWVkaWFfdHlwZSI6WyJpbWFnZS90aWZmOyBhcHBsaWNhdGlvbj1nZW90aWZmIiwiaW1hZ2UvanAyIiwiYXBwbGljYXRpb24veC1uZXRjZGYiLCJhcHBsaWNhdGlvbi92bmQuZ2RhbC52cnQreG1sIl0sInJlbW90ZSI6dHJ1ZX0sInN1YmRhdGFzZXQiOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoibmV0Q0RGIHZhcmlhYmxlLCByZWFkIGFzIE5FVENERjpcIjxzb3VyY2U+XCI6PHN1YmRhdGFzZXQ+LiJ9LCJmb3JtYXQiOnsidHlwZSI6InN0cmluZyIsImVudW0iOlsiQ09HIiwiR1RpZmYiLCJQTkciXSwiZGVmYXVsdCI6IkNPRyJ9LCJjcmVhdGlvbl9vcHRpb25zIjp7InR5cGUiOiJvYmplY3QiLCJhZGRpdGlvbmFsUHJvcGVydGllcyI6eyJ0eXBlIjoic3RyaW5nIn19fSwicmVxdWlyZWQiOlsic291cmNlIl0sIm91dHB1dHMiOnsicmVzdWx0Ijp7InR5cGUiOiJmaWxlIiwicGF0aCI6Im91dC57ZXh0fSIsIm1lZGlhX3R5cGVfZnJvbSI6ImZvcm1hdCIsIm1lZGlhX3R5cGVzIjp7IkNPRyI6ImltYWdlL3RpZmY7IGFwcGxpY2F0aW9uPWdlb3RpZmY7IHByb2ZpbGU9Y2xvdWQtb3B0aW1pemVkIiwiR1RpZmYiOiJpbWFnZS90aWZmOyBhcHBsaWNhdGlvbj1nZW90aWZmIiwiUE5HIjoiaW1hZ2UvcG5nIn19fSwiY29tbWFuZCI6WyJnZGFsX3RyYW5zbGF0ZV93cmFwcGVyIl19
+      - name: GLOW_SCOPE
+        value: '{{inputs.parameters.scope}}'
+      - name: GLOW_LET
+        value: '{{inputs.parameters.let}}'
+      - name: GLOW_IF
+        value: '{{inputs.parameters.if}}'
+      - name: GLOW_RUN_PREFIX
+        value: '{{inputs.parameters.run-prefix}}'
+      - name: GLOW_STAGING
+        value: copy
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+        readOnly: true
+      - name: work
+        mountPath: /work
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    inputs:
+      parameters:
+      - name: raw-with
+      - name: scope
+      - name: let
+        default: ''
+      - name: if
+        default: ''
+      - name: run-prefix
+    outputs:
+      parameters:
+      - name: outputs
+        valueFrom:
+          path: /work/outputs.resolved.json
+      - name: result
+        valueFrom:
+          default: 'null'
+          path: /work/outputs/result.json
+  arguments:
+    parameters:
+    - name: sources
