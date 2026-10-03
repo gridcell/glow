@@ -6,7 +6,8 @@ manifests, their JSON Schemas, and the `glow` command line.
 
 The current scope is validation, the toolpack registry, which resolves
 `uses:` references to tools and images, `glow plan`, which prints the
-validated graph, and `glow compile`, which writes an Argo Workflow.
+validated graph, `glow compile`, which writes an Argo Workflow, and
+`glow run`, which runs a workflow on one machine with Docker.
 
 ## Setup
 
@@ -144,6 +145,21 @@ UPDATE_GOLDEN=1 uv run pytest tests/compile
 ```
 
 CI runs `argo lint --offline` on every golden file.
+
+Run a workflow on this machine with Docker (see [docs/runner.md](docs/runner.md)):
+
+```bash
+make images   # toolpack images, glow-exec, engine and sandbox
+uv run glow run examples/sst-ingest.yaml \
+  --input source=tests/fixtures/data/sst --input dest=/tmp/sst-out \
+  --input collection=noaa-sst --input color_table=tests/fixtures/data/sst/colors.txt
+uv run glow run examples/sst-ingest.yaml --dry-run   # print the plan only
+```
+
+Built-ins run in-process; every other step is a `docker run` of its image
+under glow-exec, with the parameters the compiler emits. Each step's
+`outputs.resolved.json` is kept under `.glow/runs/<run-id>/steps/`. The SST
+netCDF files are generated, not committed; docs/runner.md shows how.
 
 Lint toolpack manifests, and regenerate or check the registry lock:
 

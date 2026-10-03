@@ -15,6 +15,12 @@ dependencies = [
 
 [project.scripts]
 glow = "glow.cli:main"
+glow-builtin = "glow.cli:builtin_main"
+
+[project.optional-dependencies]
+s3 = [
+    "boto3>=1.40",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -35,6 +41,9 @@ select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+markers = [
+    "integration: needs docker and the toolpack images from `make images`",
+]
 
 [dependency-groups]
 dev = [

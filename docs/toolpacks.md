@@ -190,8 +190,9 @@ make images        # local/gdal:dev, local/stac:dev and local/prescient:dev
 make images-test   # toolpacks/tests, run inside the images
 ```
 
-`make images` also builds glow-exec and, when their Dockerfiles exist, the
-engine and sandbox images. The committed manifests use the local images, so
+`make images` also builds glow-exec, the engine image
+(`images/engine/Dockerfile`) and the sandbox image
+(`images/sandbox/Dockerfile`). The committed manifests use the local images, so
 `glow toolpack lint` warns and the lock has `digest: null`. To pin published
 digests, push the images and rewrite the manifests and the lock:
 

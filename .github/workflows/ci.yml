@@ -34,7 +34,9 @@ jobs:
       - name: Toolpack manifests lint
         run: uv run glow toolpack lint toolpacks/*/manifest.yaml
       - name: Registry lock matches manifests
-        run: uv run glow toolpack lock --check
+        run: |
+          uv run glow toolpack lock --check
+          uv run glow toolpack lock --check --root tests/runner/fake/toolpacks
       - name: Plan the examples
         run: |
           uv run glow plan examples/sst-ingest.yaml
@@ -92,6 +94,30 @@ jobs:
           echo "glow-exec is $size bytes"
           test "$size" -lt $((40 * 1024 * 1024))
 
+  runner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: uv sync --locked
+      - name: Build glow-exec
+        run: docker build -t local/glow-exec:dev glow-exec
+      - name: Runner tests in Docker
+        env:
+          GLOW_RUNNER_TESTS: "1"
+        run: uv run pytest tests/runner -m "not integration"
+      - name: Engine and sandbox images
+        run: |
+          docker build -f images/engine/Dockerfile -t local/engine:dev .
+          docker build -t local/sandbox:dev images/sandbox
+          docker run --rm local/engine:dev --help
+
   toolpacks:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -108,3 +134,8 @@ jobs:
         run: make images
       - name: Wrapper tests inside the images
         run: make images-test
+      - name: SST workflow with the local runner
+        env:
+          GLOW_IMAGE_TESTS: "1"
+          GLOW_RUNNER_TESTS: "1"
+        run: uv run pytest tests/runner -m integration

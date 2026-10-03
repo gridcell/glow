@@ -1,0 +1,83 @@
+{
+  "extra": {
+    "skipped": true
+  },
+  "header": {
+    "outputs": {
+      "result": {
+        "kind": "file",
+        "media_type": "text/plain",
+        "uri": "$RUN/steps/header/result/header.txt"
+      }
+    },
+    "skipped": false
+  },
+  "joined": {
+    "outputs": {
+      "count": 2,
+      "result": {
+        "kind": "file",
+        "media_type": "text/plain",
+        "uri": "$RUN/steps/joined/result/joined.txt"
+      }
+    },
+    "skipped": false
+  },
+  "per_name": {
+    "outputs": {
+      "lines": [
+        {
+          "kind": "file",
+          "media_type": "text/plain",
+          "uri": "$RUN/steps/per_name/alice/copy/result/alice.txt"
+        },
+        {
+          "kind": "file",
+          "media_type": "text/plain",
+          "uri": "$RUN/steps/per_name/bob/copy/result/bob.txt"
+        }
+      ]
+    },
+    "skipped": false
+  },
+  "per_name/alice/copy": {
+    "outputs": {
+      "result": {
+        "kind": "file",
+        "media_type": "text/plain",
+        "uri": "$RUN/steps/per_name/alice/copy/result/alice.txt"
+      }
+    },
+    "skipped": false
+  },
+  "per_name/alice/line": {
+    "outputs": {
+      "result": {
+        "kind": "file",
+        "media_type": "text/plain",
+        "uri": "$RUN/steps/per_name/alice/line/result/alice.txt"
+      }
+    },
+    "skipped": false
+  },
+  "per_name/bob/copy": {
+    "outputs": {
+      "result": {
+        "kind": "file",
+        "media_type": "text/plain",
+        "uri": "$RUN/steps/per_name/bob/copy/result/bob.txt"
+      }
+    },
+    "skipped": false
+  },
+  "per_name/bob/line": {
+    "outputs": {
+      "result": {
+        "kind": "file",
+        "media_type": "text/plain",
+        "uri": "$RUN/steps/per_name/bob/line/result/bob.txt"
+      }
+    },
+    "skipped": false
+  }
+}

@@ -1,10 +1,12 @@
 """The `glow` command line."""
 
+import os
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
+from glow.builtins import BuiltinError, run_in_work_dir
 from glow.compile import CompileError, CompileOptions, compile_workflow, to_yaml
 from glow.compile.argo import (
     DEFAULT_ENGINE_IMAGE,
@@ -17,6 +19,17 @@ from glow.lint import lint_manifest
 from glow.lock import LockError, lock_is_current, lock_path, write_lock
 from glow.manifests import ManifestError
 from glow.plan import render_plan
+from glow.runner import (
+    LOCAL_SANDBOX_IMAGE,
+    InputError,
+    RunError,
+    RunOptions,
+    StepFailedError,
+    parse_assignments,
+    resolve_inputs,
+    run_workflow,
+)
+from glow.runner.docker import Docker
 from glow.schema_export import schema_dir, stale_schemas, write_schemas
 from glow.validate import DEFAULT_TOOLPACKS, ValidationReport
 from glow.validate import validate as validate_path
@@ -28,6 +41,8 @@ app.add_typer(schema_app, name="schema")
 toolpack_app = typer.Typer(no_args_is_help=True, help="Check toolpack manifests and the lock.")
 app.add_typer(toolpack_app, name="toolpack")
 
+
+DEFAULT_LOCAL_RUN_PREFIX = ".glow"
 
 ToolpacksOption = Annotated[
     Path, typer.Option(help="Toolpacks directory holding registry.lock.yaml.")
@@ -137,6 +152,107 @@ def compile(
     typer.echo(f"wrote {output}")
 
 
+@app.command()
+def run(
+    file: Annotated[Path, typer.Argument(help="Workflow file (YAML).")],
+    inputs: Annotated[
+        list[str] | None,
+        typer.Option("--input", "-i", help="Workflow input as name=value. Repeat for each input."),
+    ] = None,
+    run_prefix: Annotated[
+        str,
+        typer.Option(help="Where run data goes: a local directory, file:// URI or s3:// URI."),
+    ] = DEFAULT_LOCAL_RUN_PREFIX,
+    toolpacks: ToolpacksOption = DEFAULT_TOOLPACKS,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Validate and print the plan; run nothing.")
+    ] = False,
+    keep_work: Annotated[
+        bool, typer.Option("--keep-work", help="Keep each step's work directory.")
+    ] = False,
+    glow_exec: Annotated[
+        Path | None,
+        typer.Option(
+            help="glow-exec binary for Linux. Defaults to $GLOW_EXEC, else local/glow-exec:dev."
+        ),
+    ] = None,
+    sandbox_image: Annotated[
+        str, typer.Option(help="Image that runs run and script steps.")
+    ] = LOCAL_SANDBOX_IMAGE,
+    max_parallelism: Annotated[
+        int | None,
+        typer.Option(min=1, help="Most containers at once. Defaults to the number of CPUs."),
+    ] = None,
+) -> None:
+    """Run a workflow on this machine with Docker.
+
+    Built-ins run in-process; every other step runs in its image under
+    glow-exec. Each step's outputs.resolved.json is kept under
+    <run prefix>/runs/<run-id>/steps/.
+    """
+    report = _report(file, toolpacks)
+    if report.ir is None:
+        typer.echo(f"error: {file} is a {report.kind}, not a workflow", err=True)
+        raise typer.Exit(1)
+    if dry_run:
+        typer.echo(render_plan(report.ir))
+        return
+    try:
+        values = resolve_inputs(report.ir, parse_assignments(inputs or []))
+        options = RunOptions(
+            run_prefix=_run_prefix(run_prefix),
+            keep_work=keep_work,
+            max_parallelism=max_parallelism,
+            sandbox_image=sandbox_image,
+        )
+    except (InputError, ValueError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    try:
+        result = run_workflow(report.ir, values, options, Docker(glow_exec=glow_exec))
+    except RunError as exc:
+        for error in exc.errors:
+            typer.echo(error.render(), err=True)
+        typer.echo(f"{file}: {len(exc.errors)} problem(s) found", err=True)
+        raise typer.Exit(1) from exc
+    except StepFailedError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        if exc.log:
+            typer.echo(exc.log, err=True)
+        raise typer.Exit(1) from exc
+    for step_id, resolved in result.outputs.items():
+        status = "skipped" if resolved.get("skipped") else "ok"
+        typer.echo(f"{status}: {step_id}")
+    if result.work_dir is not None:
+        typer.echo(f"work directories kept in {result.work_dir}")
+    typer.echo(f"run {result.run_id} succeeded; outputs under {result.run_uri}")
+
+
+def _run_prefix(value: str) -> str:
+    """An s3:// URI as it is, a local directory as an absolute path."""
+    if value.startswith("s3://"):
+        return value.rstrip("/")
+    if "://" in value and not value.startswith("file://"):
+        raise ValueError(f"run prefix {value!r} must be a directory, file:// URI or s3:// URI")
+    return os.path.abspath(value.removeprefix("file://"))
+
+
+@app.command()
+def builtin(
+    name: Annotated[str, typer.Argument(help="Built-in tool, such as fs.group.")],
+) -> None:
+    """Run a built-in under glow-exec: read inputs.json, write outputs.json.
+
+    The engine image runs this in a cluster. The work directory is
+    $GLOW_WORK_DIR, /work by default.
+    """
+    try:
+        run_in_work_dir(name)
+    except BuiltinError as exc:
+        typer.echo(f"error: {name}: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+
 @schema_app.command("export")
 def export(
     check: Annotated[
@@ -214,3 +330,8 @@ def lock(
 
 def main() -> None:
     app()
+
+
+def builtin_main() -> None:
+    """`glow-builtin <name>`, the command the compiler gives built-in steps."""
+    typer.run(builtin)
