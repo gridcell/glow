@@ -1,0 +1,609 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: sst-ingest-
+  namespace: tenant-acme
+spec:
+  entrypoint: main
+  serviceAccountName: glow-runner
+  templates:
+  - name: main
+    dag:
+      tasks:
+      - name: items
+        template: builtin-fs-group
+        arguments:
+          parameters:
+          - name: raw-with
+            value: eyJyb290IjoiJHt7IGlucHV0cy5zb3VyY2UgfX0iLCJwYXR0ZXJuIjoic3N0Xyg/UDxkYXRlPlxcZHs4fSlcXC5uYyQiLCJrZXkiOiJkYXRlIiwibWVkaWFfdHlwZSI6ImFwcGxpY2F0aW9uL3gtbmV0Y2RmIn0=
+          - name: scope
+            value: '{"inputs":{"source":{{workflow.parameters.source}},"dest":{{workflow.parameters.dest}},"collection":{{workflow.parameters.collection}},"color_table":{{workflow.parameters.color_table}}}}'
+          - name: run-prefix
+            value: s3://artifact-bucket-acme/runs/{{workflow.uid}}/steps/items
+      - name: per-item
+        depends: items
+        template: per-item-block
+        withParam: '{{tasks.items.outputs.parameters.groups}}'
+        arguments:
+          parameters:
+          - name: g
+            value: '{{item}}'
+          - name: run-prefix
+            value: s3://artifact-bucket-acme/runs/{{workflow.uid}}/steps/per-item/{{item.key}}
+      - name: publish
+        depends: per-item
+        template: tool-stac-publish
+        arguments:
+          parameters:
+          - name: raw-with
+            value: eyJjb2xsZWN0aW9uIjoiJHt7IGlucHV0cy5jb2xsZWN0aW9uIH19IiwiaXRlbXMiOiIke3sgc3RlcHMucGVyX2l0ZW0ub3V0cHV0cy5pdGVtIH19IiwiZGVzdCI6IiR7eyBpbnB1dHMuZGVzdCB9fSJ9
+          - name: scope
+            value: '{"inputs":{"source":{{workflow.parameters.source}},"dest":{{workflow.parameters.dest}},"collection":{{workflow.parameters.collection}},"color_table":{{workflow.parameters.color_table}}}}'
+          - name: run-prefix
+            value: s3://artifact-bucket-acme/runs/{{workflow.uid}}/steps/publish
+          - name: upstream-per-item
+            value: '{"outputs":{"item":{{tasks.per-item.outputs.parameters.item}}},"skipped":false}'
+  - name: per-item-block
+    dag:
+      tasks:
+      - name: cog
+        template: tool-gdal-translate
+        arguments:
+          parameters:
+          - name: raw-with
+            value: eyJzb3VyY2UiOiIke3sgZy5maWxlc1swXS5wYXRoIH19Iiwic3ViZGF0YXNldCI6InNlYV9zdXJmYWNlX3RlbXBlcmF0dXJlIiwiZm9ybWF0IjoiQ09HIiwiY3JlYXRpb25fb3B0aW9ucyI6eyJDT01QUkVTUyI6IkRFRkxBVEUiLCJQUkVESUNUT1IiOjJ9fQ==
+          - name: scope
+            value: '{"inputs":{"source":{{workflow.parameters.source}},"dest":{{workflow.parameters.dest}},"collection":{{workflow.parameters.collection}},"color_table":{{workflow.parameters.color_table}}},"g":{{inputs.parameters.g}}}'
+          - name: run-prefix
+            value: '{{inputs.parameters.run-prefix}}/cog'
+      - name: thumb
+        depends: cog
+        template: tool-gdal-dem-color-relief
+        arguments:
+          parameters:
+          - name: raw-with
+            value: eyJzb3VyY2UiOiIke3sgc3RlcHMuY29nLm91dHB1dHMucmVzdWx0IH19IiwiY29sb3JfdGFibGUiOiIke3sgaW5wdXRzLmNvbG9yX3RhYmxlIH19Iiwic2l6ZSI6WzYwMCwwXSwiZm9ybWF0IjoiUE5HIn0=
+          - name: scope
+            value: '{"inputs":{"source":{{workflow.parameters.source}},"dest":{{workflow.parameters.dest}},"collection":{{workflow.parameters.collection}},"color_table":{{workflow.parameters.color_table}}},"g":{{inputs.parameters.g}}}'
+          - name: run-prefix
+            value: '{{inputs.parameters.run-prefix}}/thumb'
+          - name: upstream-cog
+            value: '{{tasks.cog.outputs.parameters.outputs}}'
+      - name: render
+        template: tool-prescient-render-from-color-table
+        arguments:
+          parameters:
+          - name: raw-with
+            value: eyJjb2xvcl90YWJsZSI6IiR7eyBpbnB1dHMuY29sb3JfdGFibGUgfX0iLCJhc3NldCI6ImRhdGEiLCJuYW1lIjoic3N0In0=
+          - name: scope
+            value: '{"inputs":{"source":{{workflow.parameters.source}},"dest":{{workflow.parameters.dest}},"collection":{{workflow.parameters.collection}},"color_table":{{workflow.parameters.color_table}}},"g":{{inputs.parameters.g}}}'
+          - name: run-prefix
+            value: '{{inputs.parameters.run-prefix}}/render'
+      - name: item
+        depends: cog && thumb && render
+        template: tool-stac-item
+        arguments:
+          parameters:
+          - name: raw-with
+            value: eyJpZCI6InNzdC0ke3sgZy5rZXkgfX0iLCJkYXRldGltZSI6IiR7eyBkYXRlKGcua2V5LCAnJVklbSVkJykgfX0iLCJhc3NldHMiOnsiZGF0YSI6eyJocmVmIjoiJHt7IHN0ZXBzLmNvZy5vdXRwdXRzLnJlc3VsdCB9fSIsInJvbGVzIjpbImRhdGEiXSwidGl0bGUiOiJTZWEgc3VyZmFjZSB0ZW1wZXJhdHVyZSJ9LCJ0aHVtYm5haWwiOnsiaHJlZiI6IiR7eyBzdGVwcy50aHVtYi5vdXRwdXRzLnJlc3VsdCB9fSIsInJvbGVzIjpbInRodW1ibmFpbCJdfX0sImV4dGVuc2lvbnMiOnsicmVuZGVyIjoiJHt7IHN0ZXBzLnJlbmRlci5vdXRwdXRzLnJlbmRlcnMgfX0ifX0=
+          - name: scope
+            value: '{"inputs":{"source":{{workflow.parameters.source}},"dest":{{workflow.parameters.dest}},"collection":{{workflow.parameters.collection}},"color_table":{{workflow.parameters.color_table}}},"g":{{inputs.parameters.g}}}'
+          - name: run-prefix
+            value: '{{inputs.parameters.run-prefix}}/item'
+          - name: upstream-cog
+            value: '{{tasks.cog.outputs.parameters.outputs}}'
+          - name: upstream-thumb
+            value: '{{tasks.thumb.outputs.parameters.outputs}}'
+          - name: upstream-render
+            value: '{{tasks.render.outputs.parameters.outputs}}'
+    inputs:
+      parameters:
+      - name: g
+      - name: run-prefix
+    outputs:
+      parameters:
+      - name: item
+        valueFrom:
+          parameter: '{{tasks.item.outputs.parameters.item}}'
+  - name: builtin-fs-group
+    initContainers:
+    - name: glow-init
+      image: ghcr.io/sparkgeo/glow-exec:test
+      command:
+      - /glow-exec
+      - install
+      - /glow/exec
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    volumes:
+    - name: glow
+      emptyDir: {}
+    - name: work
+      emptyDir:
+        sizeLimit: 20Gi
+    container:
+      image: ghcr.io/sparkgeo/glow-engine:test
+      args:
+      - glow-builtin
+      - fs.group
+      command:
+      - /glow/exec
+      - run
+      - --tool
+      - fs.group@1
+      - --
+      env:
+      - name: GLOW_RAW_WITH
+        value: '{{inputs.parameters.raw-with}}'
+      - name: GLOW_MANIFEST
+        value: eyJuYW1lIjoiZnMuZ3JvdXAiLCJkZXNjcmlwdGlvbiI6Ikxpc3QgZmlsZXMgdW5kZXIgcm9vdCB3aG9zZSBwYXRoIHJlbGF0aXZlIHRvIHJvb3QgbWF0Y2hlcyBwYXR0ZXJuLCBhbmQgZ3JvdXAgdGhlbSBieSB0aGUgdmFsdWUgb2Ygb25lIG5hbWVkIGNhcHR1cmUuIiwiaW5wdXRzIjp7InJvb3QiOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoiUmVnaXN0ZXJlZCBsb2NhdGlvbiB0byBsaXN0LCBzdWNoIGFzIHMzOi8vYnVja2V0L3ByZWZpeC8uIiwiZm9ybWF0IjoidXJpIn0sInBhdHRlcm4iOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoiUmVndWxhciBleHByZXNzaW9uIHdpdGggbmFtZWQgY2FwdHVyZXMsIHN1Y2ggYXMgKD9QPGRhdGU+XFxkezh9KS4iLCJmb3JtYXQiOiJyZWdleCJ9LCJrZXkiOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoiTmFtZSBvZiB0aGUgY2FwdHVyZSB0byBncm91cCBieS4ifSwibWVkaWFfdHlwZSI6eyJ0eXBlIjoic3RyaW5nIiwiZGVzY3JpcHRpb24iOiJNZWRpYSB0eXBlIHRvIGFzc2lnbiB0byB0aGUgbGlzdGVkIGZpbGVzLiJ9fSwicmVxdWlyZWQiOlsicm9vdCIsInBhdHRlcm4iLCJrZXkiXSwib3V0cHV0cyI6eyJncm91cHMiOnsidHlwZSI6ImFycmF5IiwiZGVzY3JpcHRpb24iOiJPbmUgZ3JvdXAgcGVyIGRpc3RpbmN0IGtleS4iLCJpdGVtcyI6eyJ0eXBlIjoiZ3JvdXAiLCJwcm9wZXJ0aWVzIjp7ImtleSI6eyJ0eXBlIjoic3RyaW5nIiwiZGVzY3JpcHRpb24iOiJWYWx1ZSBvZiB0aGUgYGtleWAgY2FwdHVyZS4ifSwiY2FwdHVyZXMiOnsidHlwZSI6Im9iamVjdCIsImFkZGl0aW9uYWxQcm9wZXJ0aWVzIjp7InR5cGUiOiJzdHJpbmcifX0sImZpbGVzIjp7InR5cGUiOiJhcnJheSIsIml0ZW1zIjp7InR5cGUiOiJmaWxlIn19fSwicmVxdWlyZWQiOlsia2V5IiwiY2FwdHVyZXMiLCJmaWxlcyJdfX19fQ==
+      - name: GLOW_SCOPE
+        value: '{{inputs.parameters.scope}}'
+      - name: GLOW_IF
+        value: '{{inputs.parameters.if}}'
+      - name: GLOW_RUN_PREFIX
+        value: '{{inputs.parameters.run-prefix}}'
+      - name: GLOW_STAGING
+        value: copy
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+        readOnly: true
+      - name: work
+        mountPath: /work
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    inputs:
+      parameters:
+      - name: raw-with
+      - name: scope
+      - name: if
+        default: ''
+      - name: run-prefix
+    outputs:
+      parameters:
+      - name: outputs
+        valueFrom:
+          path: /work/outputs.resolved.json
+      - name: groups
+        valueFrom:
+          default: 'null'
+          path: /work/outputs/groups.json
+  - name: tool-gdal-translate
+    initContainers:
+    - name: glow-init
+      image: ghcr.io/sparkgeo/glow-exec:test
+      command:
+      - /glow-exec
+      - install
+      - /glow/exec
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    volumes:
+    - name: glow
+      emptyDir: {}
+    - name: work
+      emptyDir:
+        sizeLimit: 20Gi
+    container:
+      image: local/gdal:dev
+      args:
+      - gdal_translate_wrapper
+      command:
+      - /glow/exec
+      - run
+      - --tool
+      - gdal.translate@1
+      - --
+      env:
+      - name: GLOW_RAW_WITH
+        value: '{{inputs.parameters.raw-with}}'
+      - name: GLOW_MANIFEST
+        value: eyJuYW1lIjoiZ2RhbC50cmFuc2xhdGUiLCJkZXNjcmlwdGlvbiI6IkNvbnZlcnQgYSByYXN0ZXIgd2l0aCBnZGFsX3RyYW5zbGF0ZS4gT3V0cHV0IG1lZGlhIHR5cGUgZm9sbG93cyBgZm9ybWF0YC4iLCJpbnB1dHMiOnsic291cmNlIjp7InR5cGUiOiJmaWxlIiwibWVkaWFfdHlwZSI6WyJpbWFnZS90aWZmOyBhcHBsaWNhdGlvbj1nZW90aWZmIiwiaW1hZ2UvanAyIiwiYXBwbGljYXRpb24veC1uZXRjZGYiLCJhcHBsaWNhdGlvbi92bmQuZ2RhbC52cnQreG1sIl0sInJlbW90ZSI6dHJ1ZX0sInN1YmRhdGFzZXQiOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoibmV0Q0RGIHZhcmlhYmxlLCByZWFkIGFzIE5FVENERjpcIjxzb3VyY2U+XCI6PHN1YmRhdGFzZXQ+LiJ9LCJmb3JtYXQiOnsidHlwZSI6InN0cmluZyIsImVudW0iOlsiQ09HIiwiR1RpZmYiLCJQTkciXSwiZGVmYXVsdCI6IkNPRyJ9LCJjcmVhdGlvbl9vcHRpb25zIjp7InR5cGUiOiJvYmplY3QiLCJhZGRpdGlvbmFsUHJvcGVydGllcyI6eyJ0eXBlIjoic3RyaW5nIn19fSwicmVxdWlyZWQiOlsic291cmNlIl0sIm91dHB1dHMiOnsicmVzdWx0Ijp7InR5cGUiOiJmaWxlIiwicGF0aCI6Im91dC57ZXh0fSIsIm1lZGlhX3R5cGVfZnJvbSI6ImZvcm1hdCIsIm1lZGlhX3R5cGVzIjp7IkNPRyI6ImltYWdlL3RpZmY7IGFwcGxpY2F0aW9uPWdlb3RpZmY7IHByb2ZpbGU9Y2xvdWQtb3B0aW1pemVkIiwiR1RpZmYiOiJpbWFnZS90aWZmOyBhcHBsaWNhdGlvbj1nZW90aWZmIiwiUE5HIjoiaW1hZ2UvcG5nIn19fSwiY29tbWFuZCI6WyJnZGFsX3RyYW5zbGF0ZV93cmFwcGVyIl19
+      - name: GLOW_SCOPE
+        value: '{{inputs.parameters.scope}}'
+      - name: GLOW_IF
+        value: '{{inputs.parameters.if}}'
+      - name: GLOW_RUN_PREFIX
+        value: '{{inputs.parameters.run-prefix}}'
+      - name: GLOW_STAGING
+        value: copy
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+        readOnly: true
+      - name: work
+        mountPath: /work
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    inputs:
+      parameters:
+      - name: raw-with
+      - name: scope
+      - name: if
+        default: ''
+      - name: run-prefix
+    outputs:
+      parameters:
+      - name: outputs
+        valueFrom:
+          path: /work/outputs.resolved.json
+      - name: result
+        valueFrom:
+          default: 'null'
+          path: /work/outputs/result.json
+  - name: tool-gdal-dem-color-relief
+    initContainers:
+    - name: glow-init
+      image: ghcr.io/sparkgeo/glow-exec:test
+      command:
+      - /glow-exec
+      - install
+      - /glow/exec
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    volumes:
+    - name: glow
+      emptyDir: {}
+    - name: work
+      emptyDir:
+        sizeLimit: 20Gi
+    container:
+      image: local/gdal:dev
+      args:
+      - gdaldem_color_relief_wrapper
+      command:
+      - /glow/exec
+      - run
+      - --tool
+      - gdal.dem.color_relief@1
+      - --
+      env:
+      - name: GLOW_RAW_WITH
+        value: '{{inputs.parameters.raw-with}}'
+      - name: GLOW_MANIFEST
+        value: eyJuYW1lIjoiZ2RhbC5kZW0uY29sb3JfcmVsaWVmIiwiZGVzY3JpcHRpb24iOiJDb2xvcml6ZSBhIHNpbmdsZS1iYW5kIHJhc3RlciB3aXRoIGdkYWxkZW0gY29sb3ItcmVsaWVmIGFuZCBhIGNvbG9yIHRhYmxlLCBvcHRpb25hbGx5IHJlc2l6ZWQuIEEgc2l6ZSBvZiAwIG9uIG9uZSBheGlzIGtlZXBzIHRoZSBhc3BlY3QgcmF0aW8uIiwiaW5wdXRzIjp7InNvdXJjZSI6eyJ0eXBlIjoiZmlsZSIsIm1lZGlhX3R5cGUiOlsiaW1hZ2UvdGlmZjsgYXBwbGljYXRpb249Z2VvdGlmZiIsImltYWdlL2pwMiIsImFwcGxpY2F0aW9uL3ZuZC5nZGFsLnZydCt4bWwiXSwicmVtb3RlIjp0cnVlfSwiY29sb3JfdGFibGUiOnsidHlwZSI6ImZpbGUiLCJkZXNjcmlwdGlvbiI6ImdkYWxkZW0gY29sb3IgdGFibGUsIG9uZSBcInZhbHVlIHIgZyBiIFthXVwiIGVudHJ5IHBlciBsaW5lLiIsIm1lZGlhX3R5cGUiOiJ0ZXh0L3BsYWluIn0sInNpemUiOnsidHlwZSI6ImFycmF5IiwiZGVzY3JpcHRpb24iOiJPdXRwdXQgd2lkdGggYW5kIGhlaWdodCBpbiBwaXhlbHMuIiwiaXRlbXMiOnsidHlwZSI6ImludGVnZXIiLCJtaW5pbXVtIjowLjB9LCJtaW5JdGVtcyI6MiwibWF4SXRlbXMiOjJ9LCJmb3JtYXQiOnsidHlwZSI6InN0cmluZyIsImVudW0iOlsiUE5HIiwiR1RpZmYiLCJDT0ciXSwiZGVmYXVsdCI6IlBORyJ9fSwicmVxdWlyZWQiOlsic291cmNlIiwiY29sb3JfdGFibGUiXSwib3V0cHV0cyI6eyJyZXN1bHQiOnsidHlwZSI6ImZpbGUiLCJwYXRoIjoib3V0LntleHR9IiwibWVkaWFfdHlwZV9mcm9tIjoiZm9ybWF0IiwibWVkaWFfdHlwZXMiOnsiUE5HIjoiaW1hZ2UvcG5nIiwiR1RpZmYiOiJpbWFnZS90aWZmOyBhcHBsaWNhdGlvbj1nZW90aWZmIiwiQ09HIjoiaW1hZ2UvdGlmZjsgYXBwbGljYXRpb249Z2VvdGlmZjsgcHJvZmlsZT1jbG91ZC1vcHRpbWl6ZWQifX19LCJjb21tYW5kIjpbImdkYWxkZW1fY29sb3JfcmVsaWVmX3dyYXBwZXIiXX0=
+      - name: GLOW_SCOPE
+        value: '{{inputs.parameters.scope}}'
+      - name: GLOW_IF
+        value: '{{inputs.parameters.if}}'
+      - name: GLOW_RUN_PREFIX
+        value: '{{inputs.parameters.run-prefix}}'
+      - name: GLOW_STAGING
+        value: copy
+      - name: GLOW_UPSTREAM_cog
+        value: '{{inputs.parameters.upstream-cog}}'
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+        readOnly: true
+      - name: work
+        mountPath: /work
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    inputs:
+      parameters:
+      - name: raw-with
+      - name: scope
+      - name: if
+        default: ''
+      - name: run-prefix
+      - name: upstream-cog
+    outputs:
+      parameters:
+      - name: outputs
+        valueFrom:
+          path: /work/outputs.resolved.json
+      - name: result
+        valueFrom:
+          default: 'null'
+          path: /work/outputs/result.json
+  - name: tool-prescient-render-from-color-table
+    initContainers:
+    - name: glow-init
+      image: ghcr.io/sparkgeo/glow-exec:test
+      command:
+      - /glow-exec
+      - install
+      - /glow/exec
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    volumes:
+    - name: glow
+      emptyDir: {}
+    - name: work
+      emptyDir:
+        sizeLimit: 20Gi
+    container:
+      image: local/prescient:dev
+      args:
+      - render_from_color_table_wrapper
+      command:
+      - /glow/exec
+      - run
+      - --tool
+      - prescient.render_from_color_table@1
+      - --
+      env:
+      - name: GLOW_RAW_WITH
+        value: '{{inputs.parameters.raw-with}}'
+      - name: GLOW_MANIFEST
+        value: eyJuYW1lIjoicHJlc2NpZW50LnJlbmRlcl9mcm9tX2NvbG9yX3RhYmxlIiwiZGVzY3JpcHRpb24iOiJUdXJuIGEgY29sb3IgdGFibGUgaW50byBTVEFDIHJlbmRlciBleHRlbnNpb24gZW50cmllcyBmb3Igb25lIGFzc2V0LiIsImlucHV0cyI6eyJjb2xvcl90YWJsZSI6eyJ0eXBlIjoiZmlsZSIsImRlc2NyaXB0aW9uIjoiZ2RhbGRlbSBjb2xvciB0YWJsZSwgb25lIFwidmFsdWUgciBnIGIgW2FdXCIgZW50cnkgcGVyIGxpbmUuIiwibWVkaWFfdHlwZSI6InRleHQvcGxhaW4ifSwiYXNzZXQiOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoiQXNzZXQga2V5IHRoZSByZW5kZXIgYXBwbGllcyB0by4ifSwibmFtZSI6eyJ0eXBlIjoic3RyaW5nIiwiZGVzY3JpcHRpb24iOiJSZW5kZXIgbmFtZS4ifX0sInJlcXVpcmVkIjpbImNvbG9yX3RhYmxlIiwiYXNzZXQiLCJuYW1lIl0sIm91dHB1dHMiOnsicmVuZGVycyI6eyJ0eXBlIjoib2JqZWN0IiwiZGVzY3JpcHRpb24iOiJTVEFDIHJlbmRlciBleHRlbnNpb24gb2JqZWN0cyBrZXllZCBieSBuYW1lLiBUaGUgcmVuZGVyIHJlc2NhbGVzIHRoZSBjb2xvciB0YWJsZSdzIHZhbHVlIHJhbmdlIG9udG8gMC4uMjU1IGFuZCBoYXMgYSAyNTYtZW50cnkgY29sb3JtYXAuIn19LCJjb21tYW5kIjpbInJlbmRlcl9mcm9tX2NvbG9yX3RhYmxlX3dyYXBwZXIiXX0=
+      - name: GLOW_SCOPE
+        value: '{{inputs.parameters.scope}}'
+      - name: GLOW_IF
+        value: '{{inputs.parameters.if}}'
+      - name: GLOW_RUN_PREFIX
+        value: '{{inputs.parameters.run-prefix}}'
+      - name: GLOW_STAGING
+        value: copy
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+        readOnly: true
+      - name: work
+        mountPath: /work
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    inputs:
+      parameters:
+      - name: raw-with
+      - name: scope
+      - name: if
+        default: ''
+      - name: run-prefix
+    outputs:
+      parameters:
+      - name: outputs
+        valueFrom:
+          path: /work/outputs.resolved.json
+      - name: renders
+        valueFrom:
+          default: 'null'
+          path: /work/outputs/renders.json
+  - name: tool-stac-item
+    initContainers:
+    - name: glow-init
+      image: ghcr.io/sparkgeo/glow-exec:test
+      command:
+      - /glow-exec
+      - install
+      - /glow/exec
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    volumes:
+    - name: glow
+      emptyDir: {}
+    - name: work
+      emptyDir:
+        sizeLimit: 20Gi
+    container:
+      image: local/stac:dev
+      args:
+      - stac_item_wrapper
+      command:
+      - /glow/exec
+      - run
+      - --tool
+      - stac.item@1
+      - --
+      env:
+      - name: GLOW_RAW_WITH
+        value: '{{inputs.parameters.raw-with}}'
+      - name: GLOW_MANIFEST
+        value: eyJuYW1lIjoic3RhYy5pdGVtIiwiZGVzY3JpcHRpb24iOiJCdWlsZCBvbmUgU1RBQyAxLjAgaXRlbSBmcm9tIGFzc2V0IGhyZWZzLiBHZW9tZXRyeSBhbmQgYmJveCBjb21lIGZyb20gdGhlIGZpcnN0IGFzc2V0IHRoYXQgaXMgYSBsb2NhbCBnZW9yZWZlcmVuY2VkIHJhc3RlciwgdHJ5aW5nIGFzc2V0cyB3aXRoIHRoZSBkYXRhIHJvbGUgZmlyc3Q7IG90aGVyd2lzZSB0aGV5IGFyZSBudWxsLiIsImlucHV0cyI6eyJpZCI6eyJ0eXBlIjoic3RyaW5nIiwiZGVzY3JpcHRpb24iOiJTVEFDIGl0ZW0gaWQuIn0sImRhdGV0aW1lIjp7InR5cGUiOiJzdHJpbmciLCJmb3JtYXQiOiJkYXRlLXRpbWUifSwiYXNzZXRzIjp7InR5cGUiOiJvYmplY3QiLCJkZXNjcmlwdGlvbiI6IkFzc2V0IGtleSB0byBhc3NldCBvYmplY3QgKGhyZWYsIHJvbGVzLCB0aXRsZSwgdHlwZSkuIiwiYWRkaXRpb25hbFByb3BlcnRpZXMiOnsidHlwZSI6Im9iamVjdCIsInByb3BlcnRpZXMiOnsiaHJlZiI6eyJ0eXBlIjoiZmlsZSIsImRlc2NyaXB0aW9uIjoiQXNzZXQgVVJJLCBvciBhIHJlc29sdmVkIGZpbGUgd2hvc2UgbWVkaWEgdHlwZSBzZXRzIHRoZSBhc3NldCB0eXBlLiJ9LCJyb2xlcyI6eyJ0eXBlIjoiYXJyYXkiLCJpdGVtcyI6eyJ0eXBlIjoic3RyaW5nIn19LCJ0aXRsZSI6eyJ0eXBlIjoic3RyaW5nIn0sInR5cGUiOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoiQXNzZXQgbWVkaWEgdHlwZS4ifX0sInJlcXVpcmVkIjpbImhyZWYiXX19LCJhc3NldF9lbnRyaWVzIjp7InR5cGUiOiJhcnJheSIsImRlc2NyaXB0aW9uIjoiQXNzZXRzIGFzIGEgbGlzdCwgbWVyZ2VkIG92ZXIgYGFzc2V0c2AuIEFuIGVudHJ5IHdpbnMgb3ZlciBhbiBhc3NldCB3aXRoIHRoZSBzYW1lIGtleS4iLCJpdGVtcyI6eyJ0eXBlIjoib2JqZWN0IiwicHJvcGVydGllcyI6eyJrZXkiOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoiQXNzZXQga2V5LiJ9LCJocmVmIjp7InR5cGUiOiJmaWxlIn0sInJvbGVzIjp7InR5cGUiOiJhcnJheSIsIml0ZW1zIjp7InR5cGUiOiJzdHJpbmcifX0sInRpdGxlIjp7InR5cGUiOiJzdHJpbmcifSwidHlwZSI6eyJ0eXBlIjoic3RyaW5nIn19LCJyZXF1aXJlZCI6WyJrZXkiLCJocmVmIl19fSwicHJvcGVydGllcyI6eyJ0eXBlIjoib2JqZWN0IiwiZGVzY3JpcHRpb24iOiJFeHRyYSBpdGVtIHByb3BlcnRpZXMuIn0sImV4dGVuc2lvbnMiOnsidHlwZSI6Im9iamVjdCIsImRlc2NyaXB0aW9uIjoiRXh0ZW5zaW9uIHZhbHVlcyBrZXllZCBieSBleHRlbnNpb24gbmFtZS4gU3VwcG9ydGVkOiBgcmVuZGVyYCwgd2hvc2UgdmFsdWUgYmVjb21lcyB0aGUgaXRlbSdzIGByZW5kZXJzYCBwcm9wZXJ0eS4ifX0sInJlcXVpcmVkIjpbImlkIiwiZGF0ZXRpbWUiXSwib3V0cHV0cyI6eyJpdGVtIjp7InR5cGUiOiJmaWxlIiwicGF0aCI6Iml0ZW0uanNvbiIsIm1lZGlhX3R5cGUiOiJhcHBsaWNhdGlvbi9nZW8ranNvbiJ9fSwiY29tbWFuZCI6WyJzdGFjX2l0ZW1fd3JhcHBlciJdfQ==
+      - name: GLOW_SCOPE
+        value: '{{inputs.parameters.scope}}'
+      - name: GLOW_IF
+        value: '{{inputs.parameters.if}}'
+      - name: GLOW_RUN_PREFIX
+        value: '{{inputs.parameters.run-prefix}}'
+      - name: GLOW_STAGING
+        value: copy
+      - name: GLOW_UPSTREAM_cog
+        value: '{{inputs.parameters.upstream-cog}}'
+      - name: GLOW_UPSTREAM_thumb
+        value: '{{inputs.parameters.upstream-thumb}}'
+      - name: GLOW_UPSTREAM_render
+        value: '{{inputs.parameters.upstream-render}}'
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+        readOnly: true
+      - name: work
+        mountPath: /work
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    inputs:
+      parameters:
+      - name: raw-with
+      - name: scope
+      - name: if
+        default: ''
+      - name: run-prefix
+      - name: upstream-cog
+      - name: upstream-thumb
+      - name: upstream-render
+    outputs:
+      parameters:
+      - name: outputs
+        valueFrom:
+          path: /work/outputs.resolved.json
+      - name: item
+        valueFrom:
+          default: 'null'
+          path: /work/outputs/item.json
+  - name: tool-stac-publish
+    initContainers:
+    - name: glow-init
+      image: ghcr.io/sparkgeo/glow-exec:test
+      command:
+      - /glow-exec
+      - install
+      - /glow/exec
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    volumes:
+    - name: glow
+      emptyDir: {}
+    - name: work
+      emptyDir:
+        sizeLimit: 20Gi
+    container:
+      image: local/stac:dev
+      args:
+      - stac_publish_wrapper
+      command:
+      - /glow/exec
+      - run
+      - --tool
+      - stac.publish@1
+      - --
+      env:
+      - name: GLOW_RAW_WITH
+        value: '{{inputs.parameters.raw-with}}'
+      - name: GLOW_MANIFEST
+        value: eyJuYW1lIjoic3RhYy5wdWJsaXNoIiwiZGVzY3JpcHRpb24iOiJXcml0ZSBpdGVtcyBhcyBzdGF0aWMgSlNPTiB0byA8ZGVzdD4vPGNvbGxlY3Rpb24+LzxpdGVtLWlkPi5qc29uIGFuZCByZWJ1aWxkIDxkZXN0Pi88Y29sbGVjdGlvbj4vaXRlbXMuanNvbiwgYSBGZWF0dXJlQ29sbGVjdGlvbiBvZiBldmVyeSBpdGVtIHRoZXJlLiBBbiBleGlzdGluZyBpdGVtIHdpdGggdGhlIHNhbWUgaWQgaXMgcmVwbGFjZWQuIiwiaW5wdXRzIjp7ImNvbGxlY3Rpb24iOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoiQ29sbGVjdGlvbiBpZC4ifSwiaXRlbXMiOnsidHlwZSI6ImFycmF5IiwiaXRlbXMiOnsidHlwZSI6ImZpbGUiLCJtZWRpYV90eXBlIjoiYXBwbGljYXRpb24vZ2VvK2pzb24ifX0sImRlc3QiOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoiTG9jYWwgcGF0aCBvciBmaWxlOi8vIFVSSSBvZiB0aGUgY2F0YWxvZyByb290LiIsImZvcm1hdCI6InVyaSJ9fSwicmVxdWlyZWQiOlsiY29sbGVjdGlvbiIsIml0ZW1zIiwiZGVzdCJdLCJvdXRwdXRzIjp7InB1Ymxpc2hlZCI6eyJ0eXBlIjoiaW50ZWdlciIsImRlc2NyaXB0aW9uIjoiTnVtYmVyIG9mIGl0ZW1zIHdyaXR0ZW4uIn19LCJjb21tYW5kIjpbInN0YWNfcHVibGlzaF93cmFwcGVyIl19
+      - name: GLOW_SCOPE
+        value: '{{inputs.parameters.scope}}'
+      - name: GLOW_IF
+        value: '{{inputs.parameters.if}}'
+      - name: GLOW_RUN_PREFIX
+        value: '{{inputs.parameters.run-prefix}}'
+      - name: GLOW_STAGING
+        value: copy
+      - name: GLOW_UPSTREAM_per_item
+        value: '{{inputs.parameters.upstream-per-item}}'
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+        readOnly: true
+      - name: work
+        mountPath: /work
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    inputs:
+      parameters:
+      - name: raw-with
+      - name: scope
+      - name: if
+        default: ''
+      - name: run-prefix
+      - name: upstream-per-item
+    outputs:
+      parameters:
+      - name: outputs
+        valueFrom:
+          path: /work/outputs.resolved.json
+      - name: published
+        valueFrom:
+          default: 'null'
+          path: /work/outputs/published.json
+  arguments:
+    parameters:
+    - name: source
+    - name: dest
+    - name: collection
+    - name: color_table

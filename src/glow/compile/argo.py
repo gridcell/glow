@@ -617,12 +617,19 @@ def _resources(resources: Resources | None) -> m.ResourceRequirements | None:
         if spec is None:
             return None
         values = {"cpu": spec.cpu, "memory": spec.memory, GPU_RESOURCE: spec.gpu}
-        found = {key: m.Quantity(str(value)) for key, value in values.items() if value is not None}
+        found = {key: _quantity(value) for key, value in values.items() if value is not None}
         return found or None
 
     return m.ResourceRequirements(
         requests=quantities(resources.requests), limits=quantities(resources.limits)
     )
+
+
+def _quantity(value: str | float | int) -> m.Quantity:
+    # The workflow model reads `cpu: 4` as 4.0.
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return m.Quantity(str(value))
 
 
 def _timeout(timeout: int | str | None) -> m.IntOrString | None:

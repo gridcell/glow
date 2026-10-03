@@ -1,0 +1,24 @@
+# A block member uses an output of a step outside the block.
+name: block-outer-step-output
+inputs:
+  root: { type: uri }
+  color_table: { type: file, media_type: text/plain }
+steps:
+  - id: items
+    uses: fs.group
+    with:
+      root: ${{ inputs.root }}
+      pattern: "(?P<date>\\d{8})\\.tif$"
+      key: date
+      media_type: "image/tiff; application=geotiff"
+  - id: per_item
+    for_each: ${{ steps.items.outputs.groups }}
+    as: g
+    steps:
+      - id: cog
+        uses: gdal.translate@1
+        with:
+          source: ${{ g.files[0].path }}
+          subdataset: ${{ steps.items.outputs.groups[0].key }}
+    outputs:
+      result: ${{ steps.cog.outputs.result }}

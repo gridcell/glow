@@ -66,3 +66,29 @@ def test_sst_ir_content() -> None:
     assert per_item.outputs == {"item": Array(File((MediaType.parse("application/geo+json"),)))}
     assert workflow.step("publish").depends_on == ["per_item"]
     assert workflow.step("item").depends_on == ["cog", "thumb", "render"]
+
+
+def test_ir_carries_what_the_compiler_needs() -> None:
+    workflow = validate(EXAMPLES / "sst-ingest.yaml", TOOLPACKS).ir
+    assert workflow is not None
+    cog = workflow.step("cog")
+    assert cog.raw_with["source"] == "${{ g.files[0].path }}"
+    assert cog.tool_spec is not None and cog.tool_spec["command"] == ["gdal_translate_wrapper"]
+    per_item = workflow.step("per_item")
+    assert per_item.loop is not None
+    assert per_item.loop.operand == "${{ steps.items.outputs.groups }}"
+    assert per_item.block_outputs == {"item": "${{ steps.item.outputs.item }}"}
+    assert per_item.tool_spec is None
+
+
+def test_ir_synthesizes_a_tool_spec_for_run_steps() -> None:
+    workflow = validate(EXAMPLES / "minimal-if-script.yaml", TOOLPACKS).ir
+    assert workflow is not None
+    assert workflow.defaults == {"make_previews": True}
+    count = workflow.step("count")
+    assert count.run is not None and count.run.startswith("python - <<'PY'")
+    assert count.tool_spec == {
+        "name": "glow.run",
+        "inputs": {"scenes": {"type": "array"}},
+        "outputs": {"total": {"type": "integer", "description": "Number of scenes"}},
+    }

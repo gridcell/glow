@@ -1,0 +1,489 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: minimal-if-script-
+  namespace: tenant-acme
+spec:
+  entrypoint: main
+  serviceAccountName: glow-runner
+  templates:
+  - name: main
+    dag:
+      tasks:
+      - name: count
+        template: script-count
+        arguments:
+          parameters:
+          - name: raw-with
+            value: eyJzY2VuZXMiOiIke3sgaW5wdXRzLnNjZW5lcyB9fSJ9
+          - name: scope
+            value: '{"inputs":{"scenes":{{workflow.parameters.scenes}},"make_previews":{{workflow.parameters.make_previews}}}}'
+          - name: run-prefix
+            value: s3://artifact-bucket-acme/runs/{{workflow.uid}}/steps/count
+          - name: script
+            value: cHl0aG9uIC0gPDwnUFknCmltcG9ydCBqc29uCnNjZW5lcyA9IGpzb24ubG9hZChvcGVuKCIvd29yay9pbnB1dHMuanNvbiIpKVsic2NlbmVzIl0KanNvbi5kdW1wKHsidG90YWwiOiBsZW4oc2NlbmVzKX0sIG9wZW4oIi93b3JrL291dHB1dHMuanNvbiIsICJ3IikpClBZCg==
+      - name: per-scene
+        depends: count
+        template: per-scene-fanout
+        arguments:
+          parameters:
+          - name: task-count-outputs
+            value: '{{tasks.count.outputs.parameters.outputs}}'
+      - name: info
+        depends: per-scene
+        template: tool-gdal-info
+        withParam: '{{tasks.per-scene.outputs.parameters.previews}}'
+        arguments:
+          parameters:
+          - name: raw-with
+            value: eyJzb3VyY2UiOiIke3sgcHJldmlldyB9fSJ9
+          - name: scope
+            value: '{"inputs":{"scenes":{{workflow.parameters.scenes}},"make_previews":{{workflow.parameters.make_previews}}},"preview":{{item}}}'
+          - name: run-prefix
+            value: s3://artifact-bucket-acme/runs/{{workflow.uid}}/steps/info/{{item}}
+          - name: upstream-per-scene
+            value: '{"outputs":{"previews":{{tasks.per-scene.outputs.parameters.previews}}},"skipped":false}'
+  - name: per-scene-fanout
+    parallelism: 4
+    dag:
+      tasks:
+      - name: per-scene
+        template: per-scene-block
+        withParam: '{{workflow.parameters.scenes}}'
+        arguments:
+          parameters:
+          - name: scene
+            value: '{{item}}'
+          - name: run-prefix
+            value: s3://artifact-bucket-acme/runs/{{workflow.uid}}/steps/per-scene/{{item}}
+          - name: upstream-count
+            value: '{{inputs.parameters.task-count-outputs}}'
+    inputs:
+      parameters:
+      - name: task-count-outputs
+    outputs:
+      parameters:
+      - name: previews
+        valueFrom:
+          parameter: '{{tasks.per-scene.outputs.parameters.previews}}'
+  - name: per-scene-block
+    dag:
+      tasks:
+      - name: per-band
+        template: per-band-block
+        withParam: '{{=toJson(jsonpath(inputs.parameters.scene, ''$.bands''))}}'
+        arguments:
+          parameters:
+          - name: band
+            value: '{{item}}'
+          - name: run-prefix
+            value: '{{inputs.parameters.run-prefix}}/per-band/{{item}}'
+          - name: upstream-count
+            value: '{{inputs.parameters.upstream-count}}'
+      - name: preview
+        depends: per-band
+        template: tool-gdal-translate-preview
+        arguments:
+          parameters:
+          - name: raw-with
+            value: eyJzb3VyY2UiOiIke3sgc3RlcHMucGVyX2JhbmQub3V0cHV0cy5jb2dzWzBdIH19IiwiZm9ybWF0IjoiUE5HIn0=
+          - name: scope
+            value: '{"inputs":{"scenes":{{workflow.parameters.scenes}},"make_previews":{{workflow.parameters.make_previews}}},"scene":{{inputs.parameters.scene}}}'
+          - name: run-prefix
+            value: '{{inputs.parameters.run-prefix}}/preview'
+          - name: if
+            value: (steps.count.outputs.total > 0) && (inputs.make_previews)
+          - name: upstream-count
+            value: '{{inputs.parameters.upstream-count}}'
+          - name: upstream-per-band
+            value: '{"outputs":{"cogs":{{tasks.per-band.outputs.parameters.cogs}}},"skipped":false}'
+    inputs:
+      parameters:
+      - name: scene
+      - name: run-prefix
+      - name: upstream-count
+    outputs:
+      parameters:
+      - name: previews
+        valueFrom:
+          parameter: '{{tasks.preview.outputs.parameters.result}}'
+  - name: per-band-block
+    dag:
+      tasks:
+      - name: band-cog
+        template: tool-gdal-translate
+        arguments:
+          parameters:
+          - name: raw-with
+            value: eyJzb3VyY2UiOiIke3sgYmFuZC5wYXRoIH19IiwiZm9ybWF0IjoiQ09HIn0=
+          - name: scope
+            value: '{"inputs":{"scenes":{{workflow.parameters.scenes}},"make_previews":{{workflow.parameters.make_previews}}},"band":{{inputs.parameters.band}}}'
+          - name: run-prefix
+            value: '{{inputs.parameters.run-prefix}}/band-cog'
+          - name: if
+            value: steps.count.outputs.total > 0
+          - name: upstream-count
+            value: '{{inputs.parameters.upstream-count}}'
+    inputs:
+      parameters:
+      - name: band
+      - name: run-prefix
+      - name: upstream-count
+    outputs:
+      parameters:
+      - name: cogs
+        valueFrom:
+          parameter: '{{tasks.band-cog.outputs.parameters.result}}'
+  - name: script-count
+    initContainers:
+    - name: glow-init
+      image: ghcr.io/sparkgeo/glow-exec:test
+      command:
+      - /glow-exec
+      - install
+      - /glow/exec
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    volumes:
+    - name: glow
+      emptyDir: {}
+    - name: work
+      emptyDir:
+        sizeLimit: 20Gi
+    container:
+      image: ghcr.io/sparkgeo/glow-sandbox:test
+      args:
+      - sh
+      - -c
+      - printf %s "$1" | base64 -d > /work/script && exec bash /work/script
+      - glow-run
+      - '{{inputs.parameters.script}}'
+      command:
+      - /glow/exec
+      - run
+      - --tool
+      - glow.run@1
+      - --
+      env:
+      - name: GLOW_RAW_WITH
+        value: '{{inputs.parameters.raw-with}}'
+      - name: GLOW_MANIFEST
+        value: eyJuYW1lIjoiZ2xvdy5ydW4iLCJpbnB1dHMiOnsic2NlbmVzIjp7InR5cGUiOiJhcnJheSJ9fSwib3V0cHV0cyI6eyJ0b3RhbCI6eyJ0eXBlIjoiaW50ZWdlciIsImRlc2NyaXB0aW9uIjoiTnVtYmVyIG9mIHNjZW5lcyJ9fX0=
+      - name: GLOW_SCOPE
+        value: '{{inputs.parameters.scope}}'
+      - name: GLOW_IF
+        value: '{{inputs.parameters.if}}'
+      - name: GLOW_RUN_PREFIX
+        value: '{{inputs.parameters.run-prefix}}'
+      - name: GLOW_STAGING
+        value: copy
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+        readOnly: true
+      - name: work
+        mountPath: /work
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    inputs:
+      parameters:
+      - name: raw-with
+      - name: scope
+      - name: if
+        default: ''
+      - name: run-prefix
+      - name: script
+    outputs:
+      parameters:
+      - name: outputs
+        valueFrom:
+          path: /work/outputs.resolved.json
+      - name: total
+        valueFrom:
+          default: 'null'
+          path: /work/outputs/total.json
+  - name: tool-gdal-translate
+    activeDeadlineSeconds: 1800
+    initContainers:
+    - name: glow-init
+      image: ghcr.io/sparkgeo/glow-exec:test
+      command:
+      - /glow-exec
+      - install
+      - /glow/exec
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    volumes:
+    - name: glow
+      emptyDir: {}
+    - name: work
+      emptyDir:
+        sizeLimit: 20Gi
+    container:
+      image: local/gdal:dev
+      args:
+      - gdal_translate_wrapper
+      command:
+      - /glow/exec
+      - run
+      - --tool
+      - gdal.translate@1
+      - --
+      env:
+      - name: GLOW_RAW_WITH
+        value: '{{inputs.parameters.raw-with}}'
+      - name: GLOW_MANIFEST
+        value: eyJuYW1lIjoiZ2RhbC50cmFuc2xhdGUiLCJkZXNjcmlwdGlvbiI6IkNvbnZlcnQgYSByYXN0ZXIgd2l0aCBnZGFsX3RyYW5zbGF0ZS4gT3V0cHV0IG1lZGlhIHR5cGUgZm9sbG93cyBgZm9ybWF0YC4iLCJpbnB1dHMiOnsic291cmNlIjp7InR5cGUiOiJmaWxlIiwibWVkaWFfdHlwZSI6WyJpbWFnZS90aWZmOyBhcHBsaWNhdGlvbj1nZW90aWZmIiwiaW1hZ2UvanAyIiwiYXBwbGljYXRpb24veC1uZXRjZGYiLCJhcHBsaWNhdGlvbi92bmQuZ2RhbC52cnQreG1sIl0sInJlbW90ZSI6dHJ1ZX0sInN1YmRhdGFzZXQiOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoibmV0Q0RGIHZhcmlhYmxlLCByZWFkIGFzIE5FVENERjpcIjxzb3VyY2U+XCI6PHN1YmRhdGFzZXQ+LiJ9LCJmb3JtYXQiOnsidHlwZSI6InN0cmluZyIsImVudW0iOlsiQ09HIiwiR1RpZmYiLCJQTkciXSwiZGVmYXVsdCI6IkNPRyJ9LCJjcmVhdGlvbl9vcHRpb25zIjp7InR5cGUiOiJvYmplY3QiLCJhZGRpdGlvbmFsUHJvcGVydGllcyI6eyJ0eXBlIjoic3RyaW5nIn19fSwicmVxdWlyZWQiOlsic291cmNlIl0sIm91dHB1dHMiOnsicmVzdWx0Ijp7InR5cGUiOiJmaWxlIiwicGF0aCI6Im91dC57ZXh0fSIsIm1lZGlhX3R5cGVfZnJvbSI6ImZvcm1hdCIsIm1lZGlhX3R5cGVzIjp7IkNPRyI6ImltYWdlL3RpZmY7IGFwcGxpY2F0aW9uPWdlb3RpZmY7IHByb2ZpbGU9Y2xvdWQtb3B0aW1pemVkIiwiR1RpZmYiOiJpbWFnZS90aWZmOyBhcHBsaWNhdGlvbj1nZW90aWZmIiwiUE5HIjoiaW1hZ2UvcG5nIn19fSwiY29tbWFuZCI6WyJnZGFsX3RyYW5zbGF0ZV93cmFwcGVyIl19
+      - name: GLOW_SCOPE
+        value: '{{inputs.parameters.scope}}'
+      - name: GLOW_IF
+        value: '{{inputs.parameters.if}}'
+      - name: GLOW_RUN_PREFIX
+        value: '{{inputs.parameters.run-prefix}}'
+      - name: GLOW_STAGING
+        value: copy
+      - name: GLOW_UPSTREAM_count
+        value: '{{inputs.parameters.upstream-count}}'
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+        readOnly: true
+      - name: work
+        mountPath: /work
+      resources:
+        limits:
+          cpu: '2'
+          memory: 4Gi
+        requests:
+          cpu: '1'
+          memory: 2Gi
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    inputs:
+      parameters:
+      - name: raw-with
+      - name: scope
+      - name: if
+        default: ''
+      - name: run-prefix
+      - name: upstream-count
+    outputs:
+      parameters:
+      - name: outputs
+        valueFrom:
+          path: /work/outputs.resolved.json
+      - name: result
+        valueFrom:
+          default: 'null'
+          path: /work/outputs/result.json
+    retryStrategy:
+      limit: '2'
+      retryPolicy: OnError
+  - name: tool-gdal-translate-preview
+    initContainers:
+    - name: glow-init
+      image: ghcr.io/sparkgeo/glow-exec:test
+      command:
+      - /glow-exec
+      - install
+      - /glow/exec
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    volumes:
+    - name: glow
+      emptyDir: {}
+    - name: work
+      emptyDir:
+        sizeLimit: 20Gi
+    container:
+      image: local/gdal:dev
+      args:
+      - gdal_translate_wrapper
+      command:
+      - /glow/exec
+      - run
+      - --tool
+      - gdal.translate@1
+      - --
+      env:
+      - name: GLOW_RAW_WITH
+        value: '{{inputs.parameters.raw-with}}'
+      - name: GLOW_MANIFEST
+        value: eyJuYW1lIjoiZ2RhbC50cmFuc2xhdGUiLCJkZXNjcmlwdGlvbiI6IkNvbnZlcnQgYSByYXN0ZXIgd2l0aCBnZGFsX3RyYW5zbGF0ZS4gT3V0cHV0IG1lZGlhIHR5cGUgZm9sbG93cyBgZm9ybWF0YC4iLCJpbnB1dHMiOnsic291cmNlIjp7InR5cGUiOiJmaWxlIiwibWVkaWFfdHlwZSI6WyJpbWFnZS90aWZmOyBhcHBsaWNhdGlvbj1nZW90aWZmIiwiaW1hZ2UvanAyIiwiYXBwbGljYXRpb24veC1uZXRjZGYiLCJhcHBsaWNhdGlvbi92bmQuZ2RhbC52cnQreG1sIl0sInJlbW90ZSI6dHJ1ZX0sInN1YmRhdGFzZXQiOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoibmV0Q0RGIHZhcmlhYmxlLCByZWFkIGFzIE5FVENERjpcIjxzb3VyY2U+XCI6PHN1YmRhdGFzZXQ+LiJ9LCJmb3JtYXQiOnsidHlwZSI6InN0cmluZyIsImVudW0iOlsiQ09HIiwiR1RpZmYiLCJQTkciXSwiZGVmYXVsdCI6IkNPRyJ9LCJjcmVhdGlvbl9vcHRpb25zIjp7InR5cGUiOiJvYmplY3QiLCJhZGRpdGlvbmFsUHJvcGVydGllcyI6eyJ0eXBlIjoic3RyaW5nIn19fSwicmVxdWlyZWQiOlsic291cmNlIl0sIm91dHB1dHMiOnsicmVzdWx0Ijp7InR5cGUiOiJmaWxlIiwicGF0aCI6Im91dC57ZXh0fSIsIm1lZGlhX3R5cGVfZnJvbSI6ImZvcm1hdCIsIm1lZGlhX3R5cGVzIjp7IkNPRyI6ImltYWdlL3RpZmY7IGFwcGxpY2F0aW9uPWdlb3RpZmY7IHByb2ZpbGU9Y2xvdWQtb3B0aW1pemVkIiwiR1RpZmYiOiJpbWFnZS90aWZmOyBhcHBsaWNhdGlvbj1nZW90aWZmIiwiUE5HIjoiaW1hZ2UvcG5nIn19fSwiY29tbWFuZCI6WyJnZGFsX3RyYW5zbGF0ZV93cmFwcGVyIl19
+      - name: GLOW_SCOPE
+        value: '{{inputs.parameters.scope}}'
+      - name: GLOW_IF
+        value: '{{inputs.parameters.if}}'
+      - name: GLOW_RUN_PREFIX
+        value: '{{inputs.parameters.run-prefix}}'
+      - name: GLOW_STAGING
+        value: copy
+      - name: GLOW_UPSTREAM_count
+        value: '{{inputs.parameters.upstream-count}}'
+      - name: GLOW_UPSTREAM_per_band
+        value: '{{inputs.parameters.upstream-per-band}}'
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+        readOnly: true
+      - name: work
+        mountPath: /work
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    inputs:
+      parameters:
+      - name: raw-with
+      - name: scope
+      - name: if
+        default: ''
+      - name: run-prefix
+      - name: upstream-count
+      - name: upstream-per-band
+    outputs:
+      parameters:
+      - name: outputs
+        valueFrom:
+          path: /work/outputs.resolved.json
+      - name: result
+        valueFrom:
+          default: 'null'
+          path: /work/outputs/result.json
+  - name: tool-gdal-info
+    initContainers:
+    - name: glow-init
+      image: ghcr.io/sparkgeo/glow-exec:test
+      command:
+      - /glow-exec
+      - install
+      - /glow/exec
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    volumes:
+    - name: glow
+      emptyDir: {}
+    - name: work
+      emptyDir:
+        sizeLimit: 20Gi
+    container:
+      image: local/gdal:dev
+      args:
+      - gdalinfo_wrapper
+      command:
+      - /glow/exec
+      - run
+      - --tool
+      - gdal.info@1
+      - --
+      env:
+      - name: GLOW_RAW_WITH
+        value: '{{inputs.parameters.raw-with}}'
+      - name: GLOW_MANIFEST
+        value: eyJuYW1lIjoiZ2RhbC5pbmZvIiwiZGVzY3JpcHRpb24iOiJSZXBvcnQgcmFzdGVyIG1ldGFkYXRhIHdpdGggZ2RhbGluZm8gYXMgSlNPTi4iLCJpbnB1dHMiOnsic291cmNlIjp7InR5cGUiOiJmaWxlIiwibWVkaWFfdHlwZSI6IioiLCJyZW1vdGUiOnRydWV9LCJzdGF0cyI6eyJ0eXBlIjoiYm9vbGVhbiIsImRlc2NyaXB0aW9uIjoiQ29tcHV0ZSBiYW5kIHN0YXRpc3RpY3MuIiwiZGVmYXVsdCI6ZmFsc2V9fSwicmVxdWlyZWQiOlsic291cmNlIl0sIm91dHB1dHMiOnsiaW5mbyI6eyJ0eXBlIjoib2JqZWN0IiwiZGVzY3JpcHRpb24iOiJUaGUgZ2RhbGluZm8gLWpzb24gZG9jdW1lbnQuIn19LCJjb21tYW5kIjpbImdkYWxpbmZvX3dyYXBwZXIiXX0=
+      - name: GLOW_SCOPE
+        value: '{{inputs.parameters.scope}}'
+      - name: GLOW_IF
+        value: '{{inputs.parameters.if}}'
+      - name: GLOW_RUN_PREFIX
+        value: '{{inputs.parameters.run-prefix}}'
+      - name: GLOW_STAGING
+        value: copy
+      - name: GLOW_UPSTREAM_per_scene
+        value: '{{inputs.parameters.upstream-per-scene}}'
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+        readOnly: true
+      - name: work
+        mountPath: /work
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    inputs:
+      parameters:
+      - name: raw-with
+      - name: scope
+      - name: if
+        default: ''
+      - name: run-prefix
+      - name: upstream-per-scene
+    outputs:
+      parameters:
+      - name: outputs
+        valueFrom:
+          path: /work/outputs.resolved.json
+      - name: info
+        valueFrom:
+          default: 'null'
+          path: /work/outputs/info.json
+  arguments:
+    parameters:
+    - name: scenes
+    - name: make_previews
+      value: 'true'

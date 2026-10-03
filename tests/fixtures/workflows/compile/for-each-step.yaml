@@ -1,0 +1,28 @@
+# A for_each with one inline uses body, and a step that reads its fan-in.
+name: for-each-step
+inputs:
+  root: { type: uri }
+steps:
+  - id: tiffs
+    uses: fs.glob
+    with:
+      root: ${{ inputs.root }}
+      pattern: "**/*.tif"
+  - id: info
+    for_each: ${{ steps.tiffs.outputs.files }}
+    as: tif
+    uses: gdal.info@1
+    with:
+      source: ${{ tif }}
+      stats: true
+  - id: summary
+    run: |
+      python - <<'PY'
+      import json
+      infos = json.load(open("/work/inputs.json"))["infos"]
+      json.dump({"count": len(infos)}, open("/work/outputs.json", "w"))
+      PY
+    with:
+      infos: ${{ steps.info.outputs.info }}
+    outputs:
+      count: { type: integer }

@@ -25,10 +25,14 @@ _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _BLOCK_OUTPUT = re.compile(
     r"\s*\$\{\{\s*steps\.([A-Za-z_][A-Za-z0-9_]*)\.outputs\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}\s*"
 )
+_RESULTS = re.compile(r"steps\.[A-Za-z_][A-Za-z0-9_]*\.results\b")
 # Fields evaluated outside the loop their step opens.
 _OUTSIDE_LOOP = ("for_each", "if")
 
-_HINT = "issue 7 adds scope conversion; until then pass the value through a workflow input"
+_HINT = (
+    "the compiler cannot pass outer values into a block yet; read the value from a workflow "
+    "input, the block's loop variable or a step inside the block"
+)
 
 
 def check(workflow: ir.Workflow) -> list[GlowError]:
@@ -112,7 +116,7 @@ def _step_problem(workflow: ir.Workflow, target: ir.Step, field: str, edge: ir.E
     producer = edge.source_step
     if producer is None:
         return None
-    if edge.source.split(".")[2:3] == ["results"]:
+    if _RESULTS.match(edge.source):
         return f"steps.{producer}.results is not yet supported by the compiler"
     expected_parent = target.id if field == "outputs" else target.parent
     actual_parent = workflow.step(producer).parent

@@ -1,0 +1,22 @@
+# A member of a nested block uses the loop variable two levels up.
+name: block-outer-loop-var
+inputs:
+  scenes: { type: array }
+steps:
+  - id: per_scene
+    for_each: ${{ inputs.scenes }}
+    as: scene
+    steps:
+      - id: per_band
+        for_each: ${{ scene.bands }}
+        as: band
+        steps:
+          - id: cog
+            uses: gdal.translate@1
+            with:
+              source: ${{ band.path }}
+              subdataset: ${{ scene.id }}
+        outputs:
+          cogs: ${{ steps.cog.outputs.result }}
+    outputs:
+      cogs: ${{ steps.per_band.outputs.cogs }}
