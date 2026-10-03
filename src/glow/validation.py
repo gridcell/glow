@@ -113,11 +113,16 @@ def validate_file(path: Path) -> ValidationResult:
     return validate_text(read_document(path))
 
 
+def parse_yaml(text: str) -> Any:
+    """Parse YAML with the strict loader. Raises `yaml.YAMLError`."""
+    return yaml.load(text, Loader=_StrictSafeLoader)
+
+
 def validate_text(text: str) -> ValidationResult:
     try:
-        data = yaml.load(text, Loader=_StrictSafeLoader)
+        data = parse_yaml(text)
     except yaml.YAMLError as exc:
-        return ValidationResult(None, [Problem("$", f"invalid YAML: {_yaml_error_message(exc)}")])
+        return ValidationResult(None, [Problem("$", f"invalid YAML: {yaml_error_message(exc)}")])
     return validate_document(data)
 
 
@@ -197,7 +202,7 @@ def format_path(parts: Iterable[str | int]) -> str:
     return path
 
 
-def _yaml_error_message(exc: yaml.YAMLError) -> str:
+def yaml_error_message(exc: yaml.YAMLError) -> str:
     if isinstance(exc, yaml.MarkedYAMLError) and exc.problem_mark is not None:
         mark = exc.problem_mark
         return f"{exc.problem} at line {mark.line + 1}, column {mark.column + 1}"

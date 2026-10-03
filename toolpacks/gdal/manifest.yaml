@@ -1,6 +1,7 @@
 # GDAL toolpack. The image digest is a placeholder until the toolpack images
 # are built and published (issue 10).
 toolpack: gdal
+version: 1 # major version: workflows use <tool>@1
 image: ghcr.io/sparkgeo/glow-gdal@sha256:0000000000000000000000000000000000000000000000000000000000000000 # digest, never a tag
 tools:
   - name: gdal.translate

@@ -4,8 +4,9 @@ GLOW v2 describes geospatial workflows as YAML files that compile to Argo
 Workflows. This package holds the data model for workflow files and toolpack
 manifests, their JSON Schemas, and the `glow` command line.
 
-The current scope is schema-level validation. Tool resolution, expression type
-checks and compilation come later.
+The current scope is schema-level validation and the toolpack registry, which
+resolves `uses:` references to tools and images. Expression type checks and
+compilation come later.
 
 ## Setup
 
@@ -37,6 +38,17 @@ error: $.steps[1]: step must set exactly one of uses, run, script, for_each (fou
 The command exits 2 when it cannot read the file. Files larger than 1 MiB are
 rejected. YAML aliases, duplicate keys and non-string keys are errors.
 
+Lint toolpack manifests, and regenerate or check the registry lock:
+
+```bash
+uv run glow toolpack lint toolpacks/*/manifest.yaml
+uv run glow toolpack lock           # rewrite toolpacks/registry.lock.yaml
+uv run glow toolpack lock --check   # exit 1 if the lock is out of date
+```
+
+See [docs/toolpacks.md](docs/toolpacks.md) for the toolpack layout,
+versioning and the tool contract.
+
 ## Layout
 
 | Path | Content |
@@ -44,9 +56,12 @@ rejected. YAML aliases, duplicate keys and non-string keys are errors.
 | `src/glow/models/` | pydantic models for workflows (`workflow.py`) and toolpack manifests (`toolpack.py`) |
 | `src/glow/schemas/` | JSON Schemas generated from the models. Do not edit by hand. |
 | `src/glow/expressions/` | Helper that finds `${{ ... }}` spans. Expressions are not parsed yet. |
+| `src/glow/registry.py` | Resolves `uses:` references through the lock file |
+| `src/glow/builtins/` | Built-in tools (`fs.group`, `fs.glob`) |
 | `examples/` | Example workflows |
-| `toolpacks/` | Toolpack manifests (`gdal`, `stac`, `prescient`) |
+| `toolpacks/` | Toolpack manifests (`gdal`, `stac`, `prescient`) and `registry.lock.yaml` |
 | `docs/decisions.md` | Adopted design decisions |
+| `docs/toolpacks.md` | Toolpack layout, naming, versioning and tool contract |
 
 ## Workflow syntax
 

@@ -1,0 +1,19 @@
+# Lint fixture: `media_types` has no entry for the PNG value of `format`.
+toolpack: bad_media_types
+version: 1
+image: local/bad_media_types:dev
+tools:
+  - name: bad_media_types.convert
+    description: Convert a raster.
+    inputs:
+      source: { type: file }
+      format: { type: string, enum: [COG, PNG] }
+    required: [source]
+    outputs:
+      result:
+        type: file
+        path: out.{ext}
+        media_type_from: format
+        media_types:
+          COG: "image/tiff; application=geotiff; profile=cloud-optimized"
+    command: [convert]
