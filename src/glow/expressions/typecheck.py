@@ -354,7 +354,8 @@ class _Checker:
         if name == "media.accepts":
             if kind(args[0]) not in (None, "string", "array"):
                 raise self.error(node, f"{name} needs a string or a list, not {render(args[0])}")
-            self.expect_strings(node, name, args[1:])
+            accepted = args[0].member if isinstance(args[0], Array) else args[0]
+            self.expect_strings(node, name, [accepted, *args[1:]])
         else:
             self.expect_strings(node, name, args)
         return _JSON_TYPES[result]

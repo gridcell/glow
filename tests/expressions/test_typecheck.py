@@ -175,6 +175,7 @@ def test_unknown_with_reason(expression: str, reason: str) -> None:
         ("path.join(g.key)", "path.join takes 2 arguments"),
         ("media.nope(g.key)", "there is no function media.nope"),
         ("media.accepts(1, g.key)", "media.accepts needs a string or a list, not integer"),
+        ("media.accepts([1], g.key)", "media.accepts takes strings, not (integer, string)"),
         ("g.files.map(f)", "map takes a variable name and an expression"),
         ("g.files.map('f', 1)", "map takes a variable name and an expression"),
         ("g.files.filter(f, f, 1)", "filter takes a variable name and an expression"),
