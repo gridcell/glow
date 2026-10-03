@@ -29,6 +29,8 @@ jobs:
         run: uv run glow schema export --check
       - name: Tests
         run: uv run pytest
+      - name: Types module coverage
+        run: uv run pytest tests/test_types.py --cov=glow.types --cov-fail-under=100
       - name: Toolpack manifests lint
         run: uv run glow toolpack lint toolpacks/*/manifest.yaml
       - name: Registry lock matches manifests
