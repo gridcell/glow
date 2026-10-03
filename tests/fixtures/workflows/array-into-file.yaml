@@ -1,0 +1,17 @@
+# The fan-out is missing: an array of groups feeds a single-file input.
+name: array-into-file
+inputs:
+  source: { type: uri }
+steps:
+  - id: items
+    uses: fs.group
+    with:
+      root: ${{ inputs.source }}
+      pattern: "sst_(?P<date>\\d{8})\\.nc$"
+      key: date
+      media_type: application/x-netcdf
+  - id: cog
+    uses: gdal.translate@1
+    with:
+      source: ${{ steps.items.outputs.groups }}
+      format: COG

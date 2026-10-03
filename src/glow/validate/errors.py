@@ -52,30 +52,30 @@ class GlowError:
     hint: str | None = None
 
     def render(self) -> str:
-        lines = [f"error: {_printable(self.location)} [{self.code}]"]
+        lines = [f"error: {printable(self.location)} [{self.code}]"]
         if self.expects is not None:
-            lines.append(f"  expects: {_printable(self.expects)}")
+            lines.append(f"  expects: {printable(self.expects)}")
         if self.got is not None:
-            origin = f"  from {_printable(self.source)}" if self.source else ""
-            lines.append(f"  got:     {_printable(self.got)}{origin}")
+            origin = f"  from {printable(self.source)}" if self.source else ""
+            lines.append(f"  got:     {printable(self.got)}{origin}")
         if self.message:
-            lines.extend(f"  {_printable(line)}" for line in self.message.splitlines())
+            lines.extend(f"  {printable(line)}" for line in self.message.splitlines())
         if self.hint:
-            lines.append(f"  hint:    {_printable(self.hint)}")
+            lines.append(f"  hint:    {printable(self.hint)}")
         return "\n".join(lines)
 
     def __str__(self) -> str:
         return self.render()
 
 
-def _printable(text: str) -> str:
+def printable(text: str) -> str:
     """One line of workflow-supplied text, safe to print to a terminal.
 
-    Control characters could rewrite the terminal, so they are replaced, and
-    long values are clipped.
+    Control characters could rewrite the terminal, so they are replaced:
+    line breaks and tabs by a space, anything else by `?`. Long values are
+    clipped.
     """
-    flat = " ".join(text.split())
-    safe = "".join(char if char.isprintable() else "?" for char in flat)
+    safe = "".join(char if char.isprintable() else " " if char.isspace() else "?" for char in text)
     if len(safe) > MAX_TEXT_CHARS:
         return safe[: MAX_TEXT_CHARS - 3] + "..."
     return safe

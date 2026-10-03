@@ -1,0 +1,8 @@
+name: unknown-tool
+inputs:
+  scene: { type: file, media_type: "image/tiff; application=geotiff" }
+steps:
+  - id: warp
+    uses: gdal.warp@1
+    with:
+      source: ${{ inputs.scene }}

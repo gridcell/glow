@@ -1,0 +1,10 @@
+name: for-each-non-array
+inputs:
+  scene: { type: file, media_type: "image/tiff; application=geotiff" }
+steps:
+  - id: info
+    for_each: ${{ inputs.scene }}
+    as: band
+    uses: gdal.info@1
+    with:
+      source: ${{ band }}

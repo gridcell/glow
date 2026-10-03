@@ -1,0 +1,10 @@
+name: cycle
+steps:
+  - id: first
+    uses: gdal.translate@1
+    with:
+      source: ${{ steps.second.outputs.result }}
+  - id: second
+    uses: gdal.translate@1
+    with:
+      source: ${{ steps.first.outputs.result }}

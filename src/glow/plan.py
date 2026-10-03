@@ -9,6 +9,7 @@ author can tighten them.
 from glow.ir import Edge, Step, Workflow
 from glow.models import Resources
 from glow.types import render
+from glow.validate.errors import printable
 
 INDENT = "  "
 
@@ -29,15 +30,16 @@ def render_plan(workflow: Workflow) -> str:
 
 
 def _step_lines(workflow: Workflow, step: Step, indent: str, is_block: bool) -> list[str]:
-    inner = indent + INDENT
-    lines = [f"{indent}{step.id}  {_body(step, is_block=is_block)}"]
+    details = []
     if step.depends_on:
-        lines.append(f"{inner}after: {', '.join(step.depends_on)}")
+        details.append(f"after: {', '.join(step.depends_on)}")
     if step.condition is not None:
-        lines.append(f"{inner}condition: {step.condition}")
-    lines.append(f"{inner}staging: {step.staging}, resources: {_resources(step.resources)}")
-    lines.extend(f"{inner}{_edge(edge)}" for edge in workflow.edges_into(step.id))
-    return lines
+        details.append(f"condition: {step.condition}")
+    details.append(f"staging: {step.staging}, resources: {_resources(step.resources)}")
+    details.extend(_edge(edge) for edge in workflow.edges_into(step.id))
+    # Conditions and references are workflow text: keep them to one printable line.
+    header = f"{indent}{step.id}  {printable(_body(step, is_block=is_block))}"
+    return [header, *(f"{indent}{INDENT}{printable(line)}" for line in details)]
 
 
 def _body(step: Step, *, is_block: bool) -> str:
