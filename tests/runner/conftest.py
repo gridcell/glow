@@ -173,3 +173,17 @@ def fake_image(docker: Docker) -> str:
     )
     assert result.returncode == 0, result.stderr
     return FAKE_IMAGE
+
+
+RUN_PLACEHOLDER = "$RUN"
+
+
+def resolved_tree(run_dir: Path) -> dict[str, Any]:
+    """Every outputs.resolved.json under `run_dir/steps`, by relative path, with the
+    run directory replaced by `$RUN` so that runs compare across machines."""
+    steps = run_dir / "steps"
+    tree = {}
+    for path in sorted(steps.rglob("outputs.resolved.json")):
+        text = path.read_text().replace(str(run_dir), RUN_PLACEHOLDER)
+        tree[path.parent.relative_to(steps).as_posix()] = json.loads(text)
+    return tree
