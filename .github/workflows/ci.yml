@@ -29,3 +29,7 @@ jobs:
         run: uv run glow schema export --check
       - name: Tests
         run: uv run pytest
+      - name: Toolpack manifests lint
+        run: uv run glow toolpack lint toolpacks/*/manifest.yaml
+      - name: Registry lock matches manifests
+        run: uv run glow toolpack lock --check

@@ -70,6 +70,9 @@ uv run pytest                        # tests
 uv run glow schema export --check    # committed schemas match the models
 uv run glow schema export            # regenerate schemas after a model change
 uv run glow validate <file>          # validate a workflow or toolpack manifest
+uv run glow toolpack lint toolpacks/*/manifest.yaml   # lint toolpack manifests
+uv run glow toolpack lock --check    # registry.lock.yaml matches the manifests
+uv run glow toolpack lock            # regenerate the lock after a manifest change
 ```
 
 ## Architecture Overview
@@ -78,7 +81,10 @@ uv run glow validate <file>          # validate a workflow or toolpack manifest
 - `src/glow/schemas/`: JSON Schemas generated from the models. Never edit by hand; CI checks they match.
 - `src/glow/validation.py`: YAML loading and validation (JSON Schema first, then model cross-field rules).
 - `src/glow/expressions/`: `${{ }}` span finder. Expressions stay opaque strings for now.
-- `src/glow/cli.py`: typer CLI (`glow validate`, `glow schema export`).
+- `src/glow/registry.py`, `src/glow/lock.py`, `src/glow/manifests.py`: resolve `uses:` to a tool and image via `toolpacks/registry.lock.yaml`.
+- `src/glow/builtins/catalog.py`: in-engine built-ins (`fs.group`, `fs.glob`), same `Tool` model as manifests.
+- `src/glow/cli.py`: typer CLI (`glow validate`, `glow schema export`, `glow toolpack lint|lock`).
+- `docs/toolpacks.md`: toolpack layout, versioning and tool contract.
 - `examples/`, `toolpacks/`: example workflows and toolpack manifests, all validated by the tests.
 - `docs/decisions.md`: adopted design decisions.
 

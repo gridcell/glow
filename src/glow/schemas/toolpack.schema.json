@@ -2,7 +2,7 @@
   "$defs": {
     "Tool": {
       "additionalProperties": false,
-      "description": "One tool in a toolpack. Doubles as an MCP tool definition.",
+      "description": "One tool in a toolpack, or an in-engine built-in such as `fs.group`.\n\nDoubles as an MCP tool definition. Built-ins run inside the engine and\nhave no `command`; a toolpack manifest requires one on every tool.",
       "properties": {
         "command": {
           "items": {
@@ -53,8 +53,7 @@
       },
       "required": [
         "name",
-        "description",
-        "command"
+        "description"
       ],
       "title": "Tool",
       "type": "object"
@@ -163,6 +162,10 @@
         "description": {
           "type": "string"
         },
+        "items": {
+          "$ref": "#/$defs/ToolInput",
+          "description": "Element type of an array output."
+        },
         "media_type": {
           "maxLength": 255,
           "minLength": 1,
@@ -213,7 +216,7 @@
   "properties": {
     "image": {
       "maxLength": 512,
-      "pattern": "^[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}$",
+      "pattern": "^([a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}|local/[a-z][a-z0-9_]*:dev)$",
       "type": "string"
     },
     "toolpack": {
@@ -227,10 +230,17 @@
       },
       "minItems": 1,
       "type": "array"
+    },
+    "version": {
+      "description": "Major version. Workflows refer to the tools as `<tool>@<version>`.",
+      "maximum": 999999,
+      "minimum": 1,
+      "type": "integer"
     }
   },
   "required": [
     "toolpack",
+    "version",
     "image",
     "tools"
   ],

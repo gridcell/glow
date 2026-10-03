@@ -39,7 +39,12 @@ def test_gdal_tools() -> None:
 
 def manifest(**tool: Any) -> dict[str, Any]:
     base = {"name": "pack.tool", "description": "d", "command": ["run"]}
-    return {"toolpack": "pack", "image": f"ghcr.io/x/pack@{DIGEST}", "tools": [{**base, **tool}]}
+    return {
+        "toolpack": "pack",
+        "version": 1,
+        "image": f"ghcr.io/x/pack@{DIGEST}",
+        "tools": [{**base, **tool}],
+    }
 
 
 def error_messages(data: dict[str, Any]) -> list[str]:
@@ -104,3 +109,26 @@ def test_required_must_name_inputs() -> None:
 
 def test_unknown_input_keyword_is_rejected() -> None:
     assert error_messages(manifest(inputs={"n": {"type": "string", "pattern": ".*"}}))
+
+
+@pytest.mark.parametrize("version", [None, 0, "1", True])
+def test_version_is_a_positive_integer(version: Any) -> None:
+    data = manifest()
+    if version is None:
+        del data["version"]
+    else:
+        data["version"] = version
+    assert error_messages(data)
+
+
+def test_local_dev_image_is_valid() -> None:
+    assert ToolpackManifest.model_validate({**manifest(), "image": "local/pack:dev"}).is_local
+    assert not ToolpackManifest.model_validate(manifest()).is_local
+
+
+def test_items_only_on_array_outputs() -> None:
+    data = manifest(outputs={"r": {"type": "file", "items": {"type": "file"}}})
+    assert any("items is only allowed on array outputs" in m for m in error_messages(data))
+    ToolpackManifest.model_validate(
+        manifest(outputs={"r": {"type": "array", "items": {"type": "file"}}})
+    )

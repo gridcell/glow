@@ -18,9 +18,20 @@ ToolName = Annotated[
     str, StringConstraints(pattern=r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$", max_length=128)
 ]
 # Images are pinned by digest so a manifest always names the exact bytes it runs.
+# `local/<toolpack>:dev` is the one exception, for local development; the
+# compiler refuses it unless told otherwise.
+DIGEST_IMAGE_PATTERN = r"[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}"
+LOCAL_IMAGE_PATTERN = r"local/[a-z][a-z0-9_]*:dev"
 ImageRef = Annotated[
-    str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}$", max_length=512)
+    str,
+    StringConstraints(pattern=rf"^({DIGEST_IMAGE_PATTERN}|{LOCAL_IMAGE_PATTERN})$", max_length=512),
 ]
+MajorVersion = Annotated[int, Field(strict=True, ge=1, le=999_999)]
+
+
+def local_image(toolpack: str) -> str:
+    """The local development image reference for a toolpack."""
+    return f"local/{toolpack}:dev"
 
 
 class ToolInput(StrictModel):
@@ -75,10 +86,11 @@ class ToolOutput(StrictModel):
     media_type: MediaType | None = None
     media_type_from: Identifier | None = None
     media_types: dict[str, MediaType] | None = None
+    items: ToolInput | None = Field(default=None, description="Element type of an array output.")
 
     @model_validator(mode="after")
     def _check(self) -> "ToolOutput":
-        problem = self._path_problem() or self._media_type_problem()
+        problem = self._path_problem() or self._media_type_problem() or self._items_problem()
         if problem is not None:
             raise PydanticCustomError("glow_tool_output", problem)
         return self
@@ -104,9 +116,18 @@ class ToolOutput(StrictModel):
             return "media_type_from and media_types must be set together"
         return None
 
+    def _items_problem(self) -> str | None:
+        if self.items is not None and self.type != "array":
+            return f"items is only allowed on array outputs, not {self.type}"
+        return None
+
 
 class Tool(StrictModel):
-    """One tool in a toolpack. Doubles as an MCP tool definition."""
+    """One tool in a toolpack, or an in-engine built-in such as `fs.group`.
+
+    Doubles as an MCP tool definition. Built-ins run inside the engine and
+    have no `command`; a toolpack manifest requires one on every tool.
+    """
 
     name: ToolName
     description: Annotated[str, StringConstraints(min_length=1)]
@@ -115,7 +136,9 @@ class Tool(StrictModel):
         default_factory=list, description="Input names that must be set, as in JSON Schema."
     )
     outputs: dict[Identifier, ToolOutput] = Field(default_factory=dict)
-    command: Annotated[list[Annotated[str, StringConstraints(min_length=1)]], Field(min_length=1)]
+    command: (
+        Annotated[list[Annotated[str, StringConstraints(min_length=1)]], Field(min_length=1)] | None
+    ) = None
 
     @model_validator(mode="after")
     def _check(self) -> "Tool":
@@ -138,7 +161,9 @@ class Tool(StrictModel):
             if source not in self.inputs:
                 return f"output '{output_name}' takes media_type_from unknown input '{source}'"
             choices = self.inputs[source].enum
-            missing = [str(c) for c in choices or [] if str(c) not in (output.media_types or {})]
+            if choices is None:
+                return f"output '{output_name}' takes media_type_from input '{source}' without enum"
+            missing = [str(c) for c in choices if str(c) not in (output.media_types or {})]
             if missing:
                 return f"output '{output_name}' has no media_types entry for: {', '.join(missing)}"
         return None
@@ -148,14 +173,36 @@ class ToolpackManifest(StrictModel):
     """A toolpack: one container image and the tools it provides."""
 
     toolpack: ToolpackName
+    version: MajorVersion = Field(
+        description="Major version. Workflows refer to the tools as `<tool>@<version>`."
+    )
     image: ImageRef
     tools: Annotated[list[Tool], Field(min_length=1)]
 
+    @property
+    def is_local(self) -> bool:
+        """The image is the local development image, not a digest reference."""
+        return "@" not in self.image
+
     @model_validator(mode="after")
-    def _check_tool_names(self) -> "ToolpackManifest":
+    def _check(self) -> "ToolpackManifest":
+        if self.is_local and self.image != local_image(self.toolpack):
+            raise PydanticCustomError(
+                "glow_toolpack",
+                "local image must be '{expected}'",
+                {"expected": local_image(self.toolpack)},
+            )
+        self._check_tools()
+        return self
+
+    def _check_tools(self) -> None:
         seen: set[str] = set()
         prefix = f"{self.toolpack}."
         for tool in self.tools:
+            if tool.command is None:
+                raise PydanticCustomError(
+                    "glow_toolpack", "tool '{name}' must set command", {"name": tool.name}
+                )
             if not tool.name.startswith(prefix):
                 raise PydanticCustomError(
                     "glow_toolpack",
@@ -167,4 +214,3 @@ class ToolpackManifest(StrictModel):
                     "glow_toolpack", "duplicate tool name '{name}'", {"name": tool.name}
                 )
             seen.add(tool.name)
-        return self

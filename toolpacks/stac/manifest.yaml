@@ -1,6 +1,7 @@
 # STAC toolpack. The image digest is a placeholder until the toolpack images
 # are built and published (issue 10).
 toolpack: stac
+version: 1 # major version: workflows use <tool>@1
 image: ghcr.io/sparkgeo/glow-stac@sha256:0000000000000000000000000000000000000000000000000000000000000000
 tools:
   - name: stac.item
