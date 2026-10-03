@@ -6,7 +6,7 @@ manifests, their JSON Schemas, and the `glow` command line.
 
 The current scope is validation, the toolpack registry, which resolves
 `uses:` references to tools and images, and `glow plan`, which prints the
-validated graph. The CEL type check of expressions and compilation come later.
+validated graph. Compilation comes later.
 
 ## Setup
 
@@ -44,8 +44,10 @@ registry (`--toolpacks`, default `toolpacks/`):
 - every `uses` resolves, every `with` key exists and required inputs are set;
 - every `${{ }}` reference names an input, a step output, a loop variable or a
   `let` name that is visible in its scope;
+- every expression is valid CEL and within the cost limit;
 - a step only uses earlier steps, and no steps use each other's outputs;
-- the type of each value matches the type the tool input accepts.
+- every expression type checks, and the type of each value matches the type
+  the tool input accepts.
 
 These errors name the step and field, carry a stable code, and say how to fix
 the problem:
@@ -63,7 +65,8 @@ error: cog.with.source [GLOW-E030]
 | `GLOW-E002` | `with` key is not an input of the tool |
 | `GLOW-E003` | Required input is not set |
 | `GLOW-E004` | Media type in the workflow does not parse |
-| `GLOW-E005` | `${{` without a closing `}}` |
+| `GLOW-E005` | `${{` without a closing `}}`, or the expression is not valid CEL |
+| `GLOW-E006` | Expression is over the cost limit |
 | `GLOW-E010` | Name is not defined |
 | `GLOW-E011` | Reference to a step that runs later |
 | `GLOW-E012` | Reference to a member of a `for_each` block from outside it |
@@ -72,6 +75,7 @@ error: cog.with.source [GLOW-E030]
 | `GLOW-E030` | Value type does not match the input type |
 | `GLOW-E031` | `for_each` is not over an array |
 | `GLOW-E032` | `if` is not a boolean |
+| `GLOW-E033` | An operation in an expression does not apply to its operand types |
 | `GLOW-E040` | The toolpack registry cannot be loaded |
 
 Print the validated graph:
@@ -92,9 +96,14 @@ author can tighten it:
     with.source: file  <- g.files[0].path  [runtime check: the file has no declared media type]
 ```
 
-An expression that is not a single reference, such as
-`${{ date(g.key, '%Y%m%d') }}`, is checked at runtime until the CEL type
-checker is added.
+Expressions are type checked as a whole, so
+`${{ date(g.key, '%Y%m%d') }}` is a timestamp and
+`${{ steps.search.outputs.items.map(i, i.assets.visual.href) }}` is an
+`array<string>`. What the checker cannot type, such as an unknown function or a
+map with computed keys, is checked at runtime. Besides the standard CEL
+functions, expressions can use `date(value, format)`, `path.basename`,
+`path.dirname`, `path.stem`, `path.ext`, `path.join`, `media.matches`,
+`media.accepts`, `media.base`, `media.param` and `media.ext`.
 
 Lint toolpack manifests, and regenerate or check the registry lock:
 

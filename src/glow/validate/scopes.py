@@ -23,6 +23,7 @@ from typing import Any
 from glow.expressions import (
     Analysis,
     ExpressionSyntaxError,
+    ExpressionTooCostlyError,
     Reference,
     analyze,
     find_expressions,
@@ -238,10 +239,15 @@ class _Builder:
             return
         if not found:
             return
-        spans = []
+        analyses = []
         for expression in found:
-            analysis = analyze(expression.inner)
             text = value[expression.start : expression.end]
+            analysis = self._analyze(expression.inner, location, text)
+            if analysis is None:
+                return
+            analyses.append((text, analysis))
+        spans = []
+        for text, analysis in analyses:
             uses = tuple(
                 Use(reference, self._resolve(reference, frames, location, text))
                 for reference in analysis.references
@@ -253,6 +259,16 @@ class _Builder:
             self.table.dependencies.append(Dependency(consumer, producer, site))
         self._pending.clear()
 
+    def _analyze(self, inner: str, location: str, source: str) -> Analysis | None:
+        try:
+            return analyze(inner)
+        except ExpressionSyntaxError as exc:
+            self._error(Code.MALFORMED_EXPRESSION, location, str(exc), source=source)
+        except ExpressionTooCostlyError as exc:
+            hint = "move the work into a run or script step"
+            self._error(Code.EXPRESSION_TOO_COSTLY, location, str(exc), source=source, hint=hint)
+        return None
+
     def _resolve(
         self, reference: Reference, frames: tuple[_Frame, ...], location: str, source: str
     ) -> Symbol | None:
@@ -263,8 +279,8 @@ class _Builder:
         for frame in frames:
             if reference.root in frame.names:
                 return frame.names[reference.root]
-        visible = sorted({name for frame in frames for name in frame.names})
-        hint = f"names in scope: {', '.join(visible)}" if visible else "no loop or let names here"
+        visible = ["inputs", "steps", *sorted({name for frame in frames for name in frame.names})]
+        hint = f"names in scope: {', '.join(visible)}"
         self._error(
             Code.UNDEFINED_NAME,
             location,

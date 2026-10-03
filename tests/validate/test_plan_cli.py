@@ -55,6 +55,27 @@ def test_group_with_media_type_is_static() -> None:
     ]
 
 
+def test_computed_expression_is_typed_statically() -> None:
+    # date(g.key, ...) is a timestamp, which feeds the string datetime input.
+    result = invoke("plan", str(EXAMPLES / "sst-ingest.yaml"))
+    assert "with.datetime: string  <- g.key" in edge_lines(result.stdout, "item")
+    assert result.stdout.splitlines()[0].endswith("15 edges, 1 checked at runtime")
+
+
+def test_unknown_function_is_a_runtime_check(tmp_path: Path) -> None:
+    path = tmp_path / "w.yaml"
+    path.write_text(
+        "name: t\ninputs:\n  scene: { type: file }\nsteps:\n"
+        "  - id: a\n    uses: gdal.info@1\n"
+        "    with: { source: '${{ pick(inputs.scene) }}' }\n"
+    )
+    result = invoke("plan", str(path))
+    assert result.exit_code == 0, result.stderr
+    assert edge_lines(result.stdout, "a") == [
+        "with.source: file  <- inputs.scene  [runtime check: function 'pick' is typed at runtime]",
+    ]
+
+
 def test_group_without_media_type_is_runtime() -> None:
     result = invoke("plan", str(FIXTURES / "group-without-media-type.yaml"))
     assert result.exit_code == 0, result.stderr

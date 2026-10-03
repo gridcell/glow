@@ -57,3 +57,34 @@ Minor changes are additive.
 - **Why:** Simpler than semver for authors.
 - **Trade-off:** Needs discipline: any breaking change needs a new major
   version.
+
+## Expression checking in the validator
+
+These follow from decisions 1 and 3 and are recorded here because they change
+what `glow validate` accepts.
+
+- **Parser and checker.** cel-python parses every `${{ }}`. It has no type
+  checker, so GLOW has its own (`src/glow/expressions/typecheck.py`) over GLOW
+  types. It types paths, literals, operators, the `map`, `filter`, `all`,
+  `exists` and `exists_one` macros, and the GLOW functions. A map literal
+  with constant keys is an object with those properties.
+- **Downgrades to runtime.** The checker returns `unknown`, which makes the
+  edge a runtime check, for: functions and methods it does not know; map
+  literals with computed keys; `?:` whose branches have different types;
+  lists whose members have different types; any operation on a `file`,
+  `bundle` or `group` value, because at runtime such a value is a path string
+  in one place and a map in another; durations; and bytes.
+- **Cost limit.** cel-python has no cost limit, so the validator bounds the
+  expression instead: at most 2000 characters, 200 operations, 300 levels of
+  nesting, and 2 levels of nested macros (`GLOW-E006`). glow-exec also applies
+  cel-go's runtime cost limit.
+- **Functions not in glow-exec yet.** `path.dirname`, `media.accepts`,
+  `media.base` and `media.param` exist only in the Python evaluator. They are
+  not in the shared fixture. glow-exec must add them before a workflow that
+  uses them can run.
+- **`media.matches` and `type/*`.** glow-exec accepts a declared type such as
+  `image/*`. The Python evaluator uses `glow.types`, which has no type tree,
+  so `image/*` is an error there.
+- **Shadowed namespaces.** `path` and `media` are function namespaces. glow-exec
+  rejects them as variable names, but the validator does not yet reject an
+  `as` or `let` name of `path` or `media`.

@@ -7,10 +7,13 @@ import glow.types
 from glow.builtins import BUILTINS
 from glow.models import ToolInput, ToolOutput
 from glow.types import (
+    STRING,
+    TIMESTAMP,
     Array,
     Bundle,
     Compatibility,
     File,
+    GlowType,
     Group,
     MediaType,
     MediaTypeError,
@@ -18,8 +21,10 @@ from glow.types import (
     Unknown,
     accepts,
     is_assignable,
+    member_type,
     parse_media_types,
     parse_type,
+    parse_type_or_unknown,
     render,
     resolve_output_type,
 )
@@ -471,3 +476,66 @@ def test_module_does_not_import_validator_or_cli() -> None:
             imported.append(node.module)
     forbidden = ("glow.validation", "glow.cli", "glow.lint", "typer")
     assert not [name for name in imported if name.startswith(forbidden)]
+
+
+PNG_TYPE = MediaType.parse("image/png")
+STRING_TYPE = Scalar({"type": "string"})
+
+
+@pytest.mark.parametrize(
+    ("base", "path", "expected"),
+    [
+        (Array(STRING_TYPE), (0,), STRING_TYPE),
+        (Array(STRING_TYPE), (None,), STRING_TYPE),
+        (Group((PNG_TYPE,)), ("files", 0, "path"), File((PNG_TYPE,))),
+        (Group((PNG_TYPE,)), ("key",), STRING_TYPE),
+        (File((PNG_TYPE,)), ("uri",), File((PNG_TYPE,))),
+        (Bundle((PNG_TYPE,)), ("media_type",), STRING_TYPE),
+        (
+            Scalar({"type": "object", "properties": {"n": {"type": "integer"}}}),
+            ("n",),
+            Scalar({"type": "integer"}),
+        ),
+        (
+            Scalar({"type": "object", "additionalProperties": {"type": "file"}}),
+            ("any",),
+            File(),
+        ),
+        (Group(), ("captures", "date"), STRING_TYPE),
+    ],
+)
+def test_member_type(base: GlowType, path: tuple[object, ...], expected: GlowType) -> None:
+    assert member_type(base, path) == expected
+
+
+@pytest.mark.parametrize(
+    ("base", "path"),
+    [
+        (Array(STRING_TYPE), ("length",)),
+        (Group(), ("bands",)),
+        (File(), ("size",)),
+        (Scalar({"type": "object"}), ("x",)),
+        (Scalar({"type": "string"}), (0,)),
+        (Unknown("why"), ("x", 0)),
+    ],
+)
+def test_member_type_unknown(base: GlowType, path: tuple[object, ...]) -> None:
+    assert isinstance(member_type(base, path), Unknown)
+
+
+def test_member_type_ignores_a_non_schema_additional_properties() -> None:
+    result = member_type(Scalar({"type": "object", "additionalProperties": True}), ["x"])
+    assert result == Unknown("'x' is not a declared property")
+
+
+def test_parse_type_or_unknown() -> None:
+    assert parse_type_or_unknown({"type": "file", "media_type": None}) == File()
+    assert parse_type_or_unknown(ToolInput.model_validate({"type": "string"})) == STRING
+    result = parse_type_or_unknown({"type": "file", "media_type": "image/*"})
+    assert isinstance(result, Unknown)
+    assert "not a media type" in result.reason
+
+
+def test_timestamp_renders_and_feeds_a_string() -> None:
+    assert render(TIMESTAMP) == "timestamp"
+    assert is_assignable(TIMESTAMP, STRING).status == "ok"

@@ -1,0 +1,11 @@
+name: expression-too-costly
+inputs:
+  scenes: { type: array }
+steps:
+  - id: info
+    # Three nested macros multiply the work by the list length three times.
+    for_each: ${{ inputs.scenes.map(a, inputs.scenes.map(b, inputs.scenes.map(c, a + b + c))) }}
+    as: scene
+    uses: gdal.info@1
+    with:
+      source: ${{ scene }}
