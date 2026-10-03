@@ -176,6 +176,45 @@ func TestFileNamesMustBeUsable(t *testing.T) {
 	}
 }
 
+func TestBindEvaluatesLetsInOrder(t *testing.T) {
+	vars, err := Vars(map[string]any{"scene": map[string]any{"id": "s1"}}, map[string]params.Resolved{
+		"count": {Outputs: map[string]any{"total": int64(2)}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lets := []params.Binding{
+		{Name: "id", Value: "${{ scene.id }}"},
+		{Name: "label", Value: "${{ id }}-of-${{ steps.count.outputs.total }}"},
+		{Name: "fmt", Value: "COG"},
+	}
+	if err := Bind(vars, lets); err != nil {
+		t.Fatal(err)
+	}
+	if vars["id"] != "s1" || vars["label"] != "s1-of-2" || vars["fmt"] != "COG" {
+		t.Fatalf("vars = %#v", vars)
+	}
+	if err := Bind(vars, []params.Binding{{Name: "scene", Value: "x"}}); err == nil {
+		t.Fatal("a let must not replace a scope variable")
+	}
+	err = Bind(vars, []params.Binding{{Name: "bad", Value: "${{ missing }}"}})
+	if err == nil || !strings.Contains(err.Error(), "let.bad") {
+		t.Fatalf("error = %v, want it to name let.bad", err)
+	}
+}
+
+func TestIfSeesLets(t *testing.T) {
+	p := &params.Params{
+		Scope: map[string]any{"scene": map[string]any{"ok": false}},
+		Let:   []params.Binding{{Name: "ok", Value: "${{ scene.ok }}"}},
+		If:    "ok",
+	}
+	result, err := Run(context.Background(), Config{Tool: tool(t), Params: p, Layout: workdir.Layout{Root: t.TempDir()}})
+	if err != nil || !result.Skipped {
+		t.Fatalf("result = %+v, err = %v, want skipped", result, err)
+	}
+}
+
 func TestIfMustBeBoolean(t *testing.T) {
 	p := &params.Params{If: "${{ 'yes' }}"}
 	_, err := Run(context.Background(), Config{Tool: tool(t), Params: p, Layout: workdir.Layout{Root: t.TempDir()}})

@@ -112,6 +112,7 @@ func phaseFlagSet(name string, stderr io.Writer) (*flag.FlagSet, *params.Flags, 
 	set.StringVar(&f.RawWith, "raw-with", "", "base64 JSON of the with block, or @file (overrides GLOW_RAW_WITH)")
 	set.StringVar(&f.Manifest, "manifest", "", "base64 manifest, or @file (overrides GLOW_MANIFEST)")
 	set.StringVar(&f.Scope, "scope", "", "JSON object of expression variables, or @file (overrides GLOW_SCOPE)")
+	set.StringVar(&f.Let, "let", "", "base64 JSON list of {name, value} let bindings, or @file (overrides GLOW_LET)")
 	set.StringVar(&f.If, "if", "", "the step's if expression (overrides GLOW_IF)")
 	set.Var((*stringList)(&f.Upstream), "upstream", "step=<json> or step=@file of an upstream outputs.resolved.json; repeatable")
 	set.StringVar(&f.RunPrefix, "run-prefix", "", "directory or s3:// URI for outputs (overrides GLOW_RUN_PREFIX)")

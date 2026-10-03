@@ -70,6 +70,7 @@ TypeRef = Annotated[
 ]
 
 Check = Literal["ok", "runtime_check", "unchecked"]
+SymbolKind = Literal["input", "step", "loop", "let"]
 
 
 class ToolIdentity(StrictModel):
@@ -89,11 +90,18 @@ class Edge(StrictModel):
 
     `type` is the type of the referenced value. `check` is `ok` when the edge
     is proven statically, `runtime_check` when glow-exec checks it, with the
-    reason, and `unchecked` when the field declares no type.
+    reason, and `unchecked` when the field declares no type. `symbol` says
+    what the reference resolved to; for a loop variable or a let, `binder` is
+    the for_each step that binds it, which tells an inner name from an outer
+    one it shadows.
     """
 
     source: str = Field(description="The reference as written, such as steps.cog.outputs.result.")
     source_step: str | None = Field(description="The producing step for steps.* references.")
+    symbol: SymbolKind
+    binder: str | None = Field(
+        default=None, description="The for_each step binding a loop variable or let reference."
+    )
     target_step: str
     target: str = Field(description="The field on the target step, such as with.source.")
     expression: str = Field(description="The ${{ }} span holding the reference.")
@@ -133,6 +141,9 @@ class Step(StrictModel):
     depends_on: list[str] = Field(description="Sibling steps whose outputs this step uses.")
     loop: Loop | None = None
     let: dict[str, TypeRef] = Field(default_factory=dict)
+    let_values: dict[str, str] = Field(
+        default_factory=dict, description="The let expressions as written, in definition order."
+    )
     outputs: dict[str, TypeRef] = Field(
         default_factory=dict, description="Output types as later steps see them."
     )

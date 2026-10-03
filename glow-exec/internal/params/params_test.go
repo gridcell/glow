@@ -15,6 +15,7 @@ func TestLoadFromEnvironment(t *testing.T) {
 		"GLOW_RAW_WITH=" + b64(`{"source": "${{ steps.a.outputs.result }}", "n": 3}`),
 		"GLOW_MANIFEST=" + b64("name: x.y\n"),
 		`GLOW_SCOPE={"inputs": {"k": 1.5}}`,
+		"GLOW_LET=" + b64(`[{"name": "id", "value": "${{ scene.id }}"}, {"name": "fmt", "value": "COG"}]`),
 		"GLOW_IF=${{ true }}",
 		`GLOW_UPSTREAM_a={"outputs": {"result": {"uri": "/r/a/out.txt"}}, "skipped": false}`,
 		`GLOW_UPSTREAM_b={"skipped": true}`,
@@ -29,6 +30,10 @@ func TestLoadFromEnvironment(t *testing.T) {
 	}
 	if string(p.Manifest) != "name: x.y\n" || p.If != "${{ true }}" || p.RunPrefix != "/runs/b" || p.WorkDir != "/work" {
 		t.Fatalf("unexpected params %+v", p)
+	}
+	wantLet := []Binding{{Name: "id", Value: "${{ scene.id }}"}, {Name: "fmt", Value: "COG"}}
+	if !reflect.DeepEqual(p.Let, wantLet) {
+		t.Fatalf("let = %#v", p.Let)
 	}
 	if !p.Upstream["b"].Skipped || len(p.Upstream["b"].Outputs) != 0 {
 		t.Fatalf("skipped upstream: %+v", p.Upstream["b"])
@@ -67,6 +72,10 @@ func TestLoadRejectsMalformedInput(t *testing.T) {
 		"bad base64":       {RawWith: "%%%"},
 		"with not object":  {RawWith: b64(`[1]`)},
 		"trailing data":    {Scope: `{} {}`},
+		"let not a list":   {Let: b64(`{"name": "a", "value": "x"}`)},
+		"let bad name":     {Let: b64(`[{"name": "a.b", "value": "x"}]`)},
+		"let bound twice":  {Let: b64(`[{"name": "a", "value": "x"}, {"name": "a", "value": "y"}]`)},
+		"let not string":   {Let: b64(`[{"name": "a", "value": 1}]`)},
 		"bad upstream id":  {Upstream: []string{"../x={}"}},
 		"upstream no sep":  {Upstream: []string{"a"}},
 		"skipped not bool": {Upstream: []string{`a={"skipped": "no"}`}},

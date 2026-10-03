@@ -181,6 +181,7 @@ def _ir_step(
         depends_on=dependency_graph.depends_on.get(step.id, []),
         loop=loop,
         let={name: types.let_type(step.id, name) for name in step.let or {}},
+        let_values=dict(step.let or {}),
         outputs=types.outputs(step.id),
         block_outputs={
             name: value
@@ -269,11 +270,23 @@ def _tool_identity(resolved: ResolvedTool) -> glow_ir.ToolIdentity:
     )
 
 
+_SYMBOL_KINDS: dict[type[scopes.Symbol], glow_ir.SymbolKind] = {
+    scopes.InputSymbol: "input",
+    scopes.StepSymbol: "step",
+    scopes.LoopSymbol: "loop",
+    scopes.LetSymbol: "let",
+}
+
+
 def _ir_edge(edge: edges.TypedEdge) -> glow_ir.Edge:
     symbol = edge.use.symbol
+    assert symbol is not None, "edges are only built for resolved references"
+    binds = isinstance(symbol, scopes.LoopSymbol | scopes.LetSymbol)
     return glow_ir.Edge(
         source=edge.use.reference.text,
         source_step=symbol.step_id if isinstance(symbol, scopes.StepSymbol) else None,
+        symbol=_SYMBOL_KINDS[type(symbol)],
+        binder=symbol.step_id if binds else None,
         target_step=edge.site.step_id,
         target=scopes.format_field(edge.site.field),
         expression=edge.span,

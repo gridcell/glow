@@ -5,6 +5,7 @@
 //	GLOW_RAW_WITH        --raw-with   base64 JSON of the step's `with` block
 //	GLOW_MANIFEST        --manifest   base64 toolpack manifest or tool spec (YAML or JSON)
 //	GLOW_SCOPE           --scope      JSON object of expression variables
+//	GLOW_LET             --let        base64 JSON list of let bindings, evaluated in order
 //	GLOW_IF              --if         the step's `if` expression, `${{ ... }}`
 //	GLOW_UPSTREAM_<id>   --upstream   JSON of step <id>'s outputs.resolved.json
 //	GLOW_RUN_PREFIX      --run-prefix where outputs are uploaded
@@ -36,11 +37,14 @@ const upstreamEnvPrefix = "GLOW_UPSTREAM_"
 
 var stepID = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,62}$`)
 
+var letName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 // Flags are the raw command line values. Empty means "not given".
 type Flags struct {
 	RawWith   string
 	Manifest  string
 	Scope     string
+	Let       string
 	If        string
 	Upstream  []string // id=<json> or id=@file
 	RunPrefix string
@@ -54,11 +58,19 @@ type Resolved struct {
 	Skipped bool           `json:"skipped"`
 }
 
+// Binding is one `let`: a name and its value as written, with `${{ }}`
+// expressions unevaluated.
+type Binding struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
 // Params are the decoded step parameters.
 type Params struct {
 	RawWith   map[string]any
 	Manifest  []byte
 	Scope     map[string]any
+	Let       []Binding
 	If        string
 	Upstream  map[string]Resolved
 	RunPrefix string
@@ -106,6 +118,13 @@ func Load(environ []string, flags Flags) (*Params, error) {
 	}
 	if p.Scope, err = jsonObject(scope); err != nil {
 		return nil, fmt.Errorf("scope: %w", err)
+	}
+	lets, err := encoded(pick(flags.Let, "GLOW_LET"))
+	if err != nil {
+		return nil, fmt.Errorf("let: %w", err)
+	}
+	if p.Let, err = bindings(lets); err != nil {
+		return nil, fmt.Errorf("let: %w", err)
 	}
 	if p.Upstream, err = upstream(env, flags.Upstream); err != nil {
 		return nil, err
@@ -165,6 +184,28 @@ func jsonObject(data []byte) (map[string]any, error) {
 		return nil, fmt.Errorf("not a valid JSON object: %w", err)
 	}
 	return object, nil
+}
+
+// bindings decodes a JSON list of let bindings; empty input is no bindings.
+func bindings(data []byte) ([]Binding, error) {
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil, nil
+	}
+	var lets []Binding
+	if err := jsonvalue.Decode(data, &lets); err != nil {
+		return nil, fmt.Errorf("not a valid JSON list of {name, value} objects: %w", err)
+	}
+	seen := map[string]bool{}
+	for _, let := range lets {
+		if !letName.MatchString(let.Name) {
+			return nil, fmt.Errorf("name %q is not an identifier", let.Name)
+		}
+		if seen[let.Name] {
+			return nil, fmt.Errorf("%s is bound twice", let.Name)
+		}
+		seen[let.Name] = true
+	}
+	return lets, nil
 }
 
 func upstream(env map[string]string, flags []string) (map[string]Resolved, error) {

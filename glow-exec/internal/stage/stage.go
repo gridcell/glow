@@ -70,6 +70,9 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := Bind(vars, cfg.Params.Let); err != nil {
+		return nil, err
+	}
 	evaluator, err := cel.New(vars)
 	if err != nil {
 		return nil, err
@@ -124,6 +127,28 @@ func Vars(scope map[string]any, upstream map[string]params.Resolved) (map[string
 	}
 	vars["steps"] = steps
 	return vars, nil
+}
+
+// Bind evaluates the lets in order and adds each one to vars, so a later
+// let, the `if` and the `with` block can use it. The compiler passes the lets
+// of the enclosing blocks that the step uses, outermost first. A let is
+// evaluated before `if` because a member's `if` may use its block's lets.
+func Bind(vars map[string]any, lets []params.Binding) error {
+	for _, let := range lets {
+		if _, taken := vars[let.Name]; taken {
+			return fmt.Errorf("let %s: the name is already an expression variable", let.Name)
+		}
+		evaluator, err := cel.New(vars)
+		if err != nil {
+			return err
+		}
+		value, err := evaluator.Substitute("let."+let.Name, let.Value)
+		if err != nil {
+			return err
+		}
+		vars[let.Name] = value
+	}
+	return nil
 }
 
 func withPathAlias(value any) any {
