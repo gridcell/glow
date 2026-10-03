@@ -35,3 +35,37 @@ jobs:
         run: uv run glow toolpack lint toolpacks/*/manifest.yaml
       - name: Registry lock matches manifests
         run: uv run glow toolpack lock --check
+
+  glow-exec:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: glow-exec
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: glow-exec/go.mod
+          cache-dependency-path: glow-exec/go.sum
+      - name: Format
+        run: test -z "$(gofmt -l .)"
+      - name: Vet
+        run: go vet ./... && go vet -tags s3 ./...
+      - name: Build
+        run: go build ./...
+      - name: Tests
+        run: go test ./...
+      - name: Docker image
+        run: docker build -t glow-exec:ci .
+      - name: Static binary under 40 MB
+        run: |
+          id=$(docker create glow-exec:ci)
+          docker cp "$id:/glow-exec" "$RUNNER_TEMP/glow-exec"
+          docker rm "$id"
+          file "$RUNNER_TEMP/glow-exec" | tee /dev/stderr | grep -q "statically linked"
+          size=$(stat -c %s "$RUNNER_TEMP/glow-exec")
+          echo "glow-exec is $size bytes"
+          test "$size" -lt $((40 * 1024 * 1024))
