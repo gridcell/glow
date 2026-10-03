@@ -1,7 +1,7 @@
 # Container images for local development.
 #
 #   make images          build the toolpack images as local/<toolpack>:dev, plus
-#                        glow-exec, engine and sandbox when their Dockerfiles exist
+#                        local/glow-exec:dev, local/engine:dev and local/sandbox:dev
 #   make images-test     run the wrapper tests inside the built images
 #   make images-push REGISTRY=ghcr.io/sparkgeo
 #                        tag and push the toolpack images to REGISTRY
@@ -11,8 +11,6 @@
 
 DOCKER ?= docker
 REGISTRY ?=
-# Images that other issues add; each is built only when its Dockerfile exists.
-OPTIONAL_IMAGES := glow-exec engine sandbox
 
 .PHONY: images images-test images-push images-lock
 
@@ -21,12 +19,10 @@ images:
 	$(DOCKER) build -t local/stac:dev toolpacks/stac
 	# prescient.render_from_color_table ships in the stac image for now.
 	$(DOCKER) tag local/stac:dev local/prescient:dev
-	@for name in $(OPTIONAL_IMAGES); do \
-		if [ -f "$$name/Dockerfile" ]; then \
-			echo "$(DOCKER) build -t local/$$name:dev $$name"; \
-			$(DOCKER) build -t "local/$$name:dev" "$$name" || exit 1; \
-		fi; \
-	done
+	$(DOCKER) build -t local/glow-exec:dev glow-exec
+	# The engine installs the glow package, so it builds from the repository root.
+	$(DOCKER) build -f images/engine/Dockerfile -t local/engine:dev .
+	$(DOCKER) build -t local/sandbox:dev images/sandbox
 
 images-test:
 	GLOW_IMAGE_TESTS=1 uv run pytest toolpacks/tests

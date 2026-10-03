@@ -1,0 +1,7 @@
+# The engine builds from the repository root; send only what it installs.
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!src/
+**/__pycache__

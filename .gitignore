@@ -17,3 +17,6 @@ htmlcov/
 dist/
 build/
 *.egg-info/
+
+# Local runs (glow run)
+.glow/
