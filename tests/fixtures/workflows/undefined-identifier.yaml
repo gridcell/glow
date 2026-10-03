@@ -1,0 +1,13 @@
+name: undefined-identifier
+inputs:
+  scenes: { type: array }
+steps:
+  - id: info
+    for_each: ${{ inputs.scenes }}
+    as: scene
+    let:
+      name: ${{ path.stem(scene.path) }}
+    uses: gdal.info@1
+    with:
+      # `suffix` is not an input, a step, the loop variable or a let name.
+      source: ${{ path.join(name, suffix) }}

@@ -4,12 +4,13 @@
 if it fails, so the checks below always see a valid `Workflow` model:
 
 1. every `uses` resolves, every `with` key exists and required inputs are set;
-2. every reference resolves in its scope (`scopes.py`);
+2. every expression parses as CEL within the cost limit, and every reference
+   resolves in its scope (`scopes.py`);
 3. references only point at earlier steps and there are no cycles (`graph.py`);
-4. each edge's types are compatible (`edges.py`).
+4. every expression type checks and each edge's types are compatible (`edges.py`).
 
-A valid workflow yields the IR (`glow.ir.Workflow`). The CEL type check and
-tenant rules are not done yet.
+A valid workflow yields the IR (`glow.ir.Workflow`). Tenant rules are not done
+yet.
 """
 
 from collections.abc import Collection

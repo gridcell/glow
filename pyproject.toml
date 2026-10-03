@@ -5,6 +5,7 @@ description = "GLOW v2: declarative geospatial workflows compiled to Argo Workfl
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "cel-python>=0.5.0",
     "jsonschema>=4.26.0",
     "pydantic>=2.13.5",
     "pyyaml>=6.0.3",

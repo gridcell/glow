@@ -426,3 +426,71 @@ def resolve_output_type(
     if media_type is None:
         return kind(unknown_reason=f"no media type is declared for {source}={value!r}")
     return kind(parse_media_types(media_type))
+
+
+STRING: GlowType = Scalar({"type": "string"})
+# CEL timestamps, such as the result of date(). JSON carries them as RFC 3339
+# strings, so a timestamp feeds a string input.
+TIMESTAMP: GlowType = Scalar({"type": "string", "format": "date-time", "title": "timestamp"})
+
+# A path segment: a field name, a constant index, or None for an index known
+# only at runtime. The same as `glow.expressions.Segment`, which imports this
+# module.
+_Segment = str | int | None
+
+
+def parse_type_or_unknown(decl: Mapping[str, Any] | ToolInput) -> GlowType:
+    """`parse_type`, with a malformed media type giving `Unknown` instead of an error."""
+    if isinstance(decl, Mapping):
+        decl = {key: value for key, value in decl.items() if value is not None}
+    try:
+        return parse_type(decl)
+    except MediaTypeError as exc:
+        return Unknown(str(exc))
+
+
+def member_type(base: GlowType, path: Iterable[_Segment]) -> GlowType:
+    """The type of `base` followed by field and index segments."""
+    for part in path:
+        base = _member(base, part)
+    return base
+
+
+def _member(base: GlowType, part: _Segment) -> GlowType:
+    match base:
+        case Unknown():
+            return base
+        case Array(member):
+            return member if not isinstance(part, str) else Unknown(f"'{part}' of an array")
+        case Group():
+            return _group_member(base, part)
+        case File() | Bundle():
+            # A resolved file is a map whose `path` and `uri` are the file itself.
+            if part in ("path", "uri"):
+                return base
+            if part == "media_type":
+                return STRING
+            return Unknown(f"'{part}' of a {base.kind} is typed at runtime")
+    return _schema_member(base.schema, part)
+
+
+def _group_member(group: Group, part: _Segment) -> GlowType:
+    if part == "files":
+        return Array(File(group.media_types, group.unknown_reason))
+    if part == "key":
+        return STRING
+    if part == "captures":
+        return Scalar({"type": "object", "additionalProperties": {"type": "string"}})
+    return Unknown(f"'{part}' of a group is typed at runtime")
+
+
+def _schema_member(schema: Mapping[str, Any], part: _Segment) -> GlowType:
+    if not isinstance(part, str):
+        return Unknown("an index into a value that is not an array")
+    properties = schema.get("properties") or {}
+    if part in properties:
+        return parse_type_or_unknown(properties[part])
+    extra = schema.get("additionalProperties")
+    if isinstance(extra, dict):
+        return parse_type_or_unknown(extra)
+    return Unknown(f"'{part}' is not a declared property")

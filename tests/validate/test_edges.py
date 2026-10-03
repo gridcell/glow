@@ -1,54 +1,13 @@
 import pytest
 
 from glow.models import ToolInput
-from glow.types import Array, Bundle, File, GlowType, Group, MediaType, Scalar, Unknown
+from glow.types import Array, File, Group, MediaType, Scalar, Unknown
 from glow.validate import Code
-from glow.validate.edges import accepted_type, fs_group_type, member_type
+from glow.validate.edges import accepted_type, fs_group_type
 from tests.validate.conftest import Check
 
 PNG = MediaType.parse("image/png")
 STRING = Scalar({"type": "string"})
-
-
-@pytest.mark.parametrize(
-    ("base", "path", "expected"),
-    [
-        (Array(STRING), (0,), STRING),
-        (Array(STRING), (None,), STRING),
-        (Group((PNG,)), ("files", 0, "path"), File((PNG,))),
-        (Group((PNG,)), ("key",), STRING),
-        (File((PNG,)), ("uri",), File((PNG,))),
-        (Bundle((PNG,)), ("media_type",), STRING),
-        (
-            Scalar({"type": "object", "properties": {"n": {"type": "integer"}}}),
-            ("n",),
-            Scalar({"type": "integer"}),
-        ),
-        (
-            Scalar({"type": "object", "additionalProperties": {"type": "file"}}),
-            ("any",),
-            File(),
-        ),
-        (Group(), ("captures", "date"), STRING),
-    ],
-)
-def test_member_type(base: GlowType, path: tuple[object, ...], expected: GlowType) -> None:
-    assert member_type(base, path) == expected
-
-
-@pytest.mark.parametrize(
-    ("base", "path"),
-    [
-        (Array(STRING), ("length",)),
-        (Group(), ("bands",)),
-        (File(), ("size",)),
-        (Scalar({"type": "object"}), ("x",)),
-        (Scalar({"type": "string"}), (0,)),
-        (Unknown("why"), ("x", 0)),
-    ],
-)
-def test_member_type_unknown(base: GlowType, path: tuple[object, ...]) -> None:
-    assert isinstance(member_type(base, path), Unknown)
 
 
 def test_accepted_type_walks_nested_declarations() -> None:

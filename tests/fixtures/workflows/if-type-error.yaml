@@ -1,0 +1,17 @@
+name: if-type-error
+inputs:
+  source: { type: uri }
+  scene: { type: file, media_type: "image/tiff; application=geotiff" }
+steps:
+  - id: items
+    uses: fs.group
+    with:
+      root: ${{ inputs.source }}
+      pattern: "(?P<date>\\d{8})\\.tif$"
+      key: date
+  - id: info
+    # size() is an int and 'x' a string: '>' has no overload for them.
+    if: ${{ steps.items.outputs.groups.size() > 'x' }}
+    uses: gdal.info@1
+    with:
+      source: ${{ inputs.scene }}

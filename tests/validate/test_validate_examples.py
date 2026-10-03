@@ -28,6 +28,9 @@ def test_examples_are_valid(name: str) -> None:
         ("for-each-non-array.yaml", Code.FOR_EACH_NOT_ARRAY),
         ("undeclared-output.yaml", Code.UNDECLARED_OUTPUT),
         ("if-not-boolean.yaml", Code.IF_NOT_BOOLEAN),
+        ("if-type-error.yaml", Code.EXPRESSION_TYPE_ERROR),
+        ("undefined-identifier.yaml", Code.UNDEFINED_NAME),
+        ("expression-too-costly.yaml", Code.EXPRESSION_TOO_COSTLY),
     ],
 )
 def test_fixture_gives_exactly_one_error(fixture: str, code: Code) -> None:
@@ -44,6 +47,7 @@ def test_codes_are_stable() -> None:
         "MISSING_REQUIRED_INPUT": "GLOW-E003",
         "INVALID_MEDIA_TYPE": "GLOW-E004",
         "MALFORMED_EXPRESSION": "GLOW-E005",
+        "EXPRESSION_TOO_COSTLY": "GLOW-E006",
         "UNDEFINED_NAME": "GLOW-E010",
         "LATER_STEP": "GLOW-E011",
         "BLOCK_MEMBER": "GLOW-E012",
@@ -52,8 +56,34 @@ def test_codes_are_stable() -> None:
         "TYPE_MISMATCH": "GLOW-E030",
         "FOR_EACH_NOT_ARRAY": "GLOW-E031",
         "IF_NOT_BOOLEAN": "GLOW-E032",
+        "EXPRESSION_TYPE_ERROR": "GLOW-E033",
         "REGISTRY_UNAVAILABLE": "GLOW-E040",
     }
+
+
+def test_type_error_names_the_expression_and_operand_types() -> None:
+    report = validate(FIXTURES / "if-type-error.yaml", TOOLPACKS)
+    assert report.messages() == [
+        "error: info.if [GLOW-E033]\n"
+        "  operator '>' does not apply to integer and string, "
+        "in ${{ steps.items.outputs.groups.size() > 'x' }}"
+    ]
+
+
+def test_undefined_identifier_names_the_scope() -> None:
+    report = validate(FIXTURES / "undefined-identifier.yaml", TOOLPACKS)
+    (error,) = report.errors
+    assert error.message is not None
+    assert error.message.startswith("'suffix' is not an input")
+    assert error.hint == "names in scope: inputs, steps, name, scene"
+
+
+def test_cost_error_names_the_limit() -> None:
+    report = validate(FIXTURES / "expression-too-costly.yaml", TOOLPACKS)
+    (error,) = report.errors
+    assert error.location == "info.for_each"
+    assert error.message is not None
+    assert "nests 3 macros" in error.message
 
 
 def test_schema_problems_stop_before_semantic_checks() -> None:
@@ -205,6 +235,48 @@ def codes(check_yaml: Check, steps: str) -> list[Code]:
             "    with: { source: '${{ inputs.scene }}' }\n",
             [],
             id="boolean-if",
+        ),
+        pytest.param(
+            "  - id: a\n    uses: gdal.info@1\n    with: { source: '${{ inputs.scene + }}' }\n",
+            [Code.MALFORMED_EXPRESSION],
+            id="invalid-cel",
+        ),
+        pytest.param(
+            "  - id: a\n    uses: gdal.info@1\n"
+            "    with: { source: 's3://x/${{ inputs.flag + 1 }}' }\n",
+            [Code.EXPRESSION_TYPE_ERROR],
+            id="type-error-in-interpolation",
+        ),
+        pytest.param(
+            "  - id: a\n    uses: gdal.info@1\n    if: ${{ 1 + 'a' }}\n"
+            "    with: { source: '${{ inputs.scene }}' }\n",
+            [Code.EXPRESSION_TYPE_ERROR],
+            id="type-error-does-not-cascade",
+        ),
+        pytest.param(
+            "  - id: a\n    uses: gdal.info@1\n"
+            "    with: { source: '${{ size(inputs.scenes) }}' }\n",
+            [Code.TYPE_MISMATCH],
+            id="computed-integer-into-file",
+        ),
+        pytest.param(
+            "  - id: a\n    uses: gdal.info@1\n    if: ${{ size(inputs.scenes) }}\n"
+            "    with: { source: '${{ inputs.scene }}' }\n",
+            [Code.IF_NOT_BOOLEAN],
+            id="computed-if-not-boolean",
+        ),
+        pytest.param(
+            "  - id: a\n    for_each: ${{ size(inputs.scenes) }}\n    as: s\n"
+            "    uses: gdal.info@1\n    with: { source: '${{ inputs.scene }}' }\n",
+            [Code.FOR_EACH_NOT_ARRAY],
+            id="computed-for-each-not-array",
+        ),
+        pytest.param(
+            "  - id: a\n    uses: gdal.info@1\n"
+            "    if: ${{ size(inputs.scenes) > 0 && inputs.flag }}\n"
+            "    with: { source: '${{ inputs.scene }}' }\n",
+            [],
+            id="computed-boolean-if",
         ),
     ],
 )

@@ -1,6 +1,6 @@
 import pytest
 
-from glow.expressions import Reference, analyze
+from glow.expressions import ExpressionSyntaxError, Reference, analyze
 
 
 def paths(expression: str) -> list[str]:
@@ -44,10 +44,10 @@ def test_references_in_larger_expressions(expression: str, expected: list[str]) 
     assert analysis.whole_path is None
 
 
-def test_dynamic_index_ends_the_path_and_scans_the_index() -> None:
+def test_dynamic_index_is_none_and_its_references_are_collected() -> None:
     analysis = analyze("xs[inputs.i].path")
     assert analysis.references == (
-        Reference("xs", (None,), "xs"),
+        Reference("xs", (None, "path"), "xs[inputs.i].path"),
         Reference("inputs", ("i",), "inputs.i"),
     )
     assert analysis.whole_path is None
@@ -57,5 +57,32 @@ def test_member_after_call_is_not_a_root() -> None:
     assert paths("f(x).y") == ["x"]
 
 
-def test_unterminated_string_stops_scanning() -> None:
-    assert paths("a + 'b + c") == ["a"]
+def test_function_namespaces_are_not_references() -> None:
+    assert paths("path.basename(g.files[0].uri) + media.ext(x)") == ["g.files[0].uri", "x"]
+
+
+def test_namespace_without_a_call_is_a_reference() -> None:
+    assert paths("path.sep") == ["path.sep"]
+
+
+def test_macro_variable_is_bound_only_in_its_body() -> None:
+    assert paths("xs.map(x, x.a) + [x]") == ["xs", "x"]
+
+
+def test_nested_macros_bind_both_variables() -> None:
+    assert paths("xs.exists(x, x.ys.all(y, y > x.min))") == ["xs"]
+
+
+def test_parenthesized_path_is_whole() -> None:
+    analysis = analyze("(inputs.source)")
+    assert analysis.whole_path == Reference("inputs", ("source",), "inputs.source")
+
+
+def test_dot_qualified_identifier() -> None:
+    assert paths(".inputs.source") == [".inputs.source"]
+
+
+@pytest.mark.parametrize("expression", ["a + 'b + c", "a +", "(a", "a ? b", "}"])
+def test_invalid_cel_is_a_syntax_error(expression: str) -> None:
+    with pytest.raises(ExpressionSyntaxError, match="not valid CEL"):
+        analyze(expression)
