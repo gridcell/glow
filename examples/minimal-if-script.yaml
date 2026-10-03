@@ -1,0 +1,58 @@
+# Small synthetic workflow covering constructs the SST example lacks:
+# `if`, a `run` script step with declared outputs, `let`, an inline for_each
+# body, and for_each blocks nested two levels deep.
+name: minimal-if-script
+inputs:
+  scenes: { type: array, description: "Scenes, each with an id and a list of band files" }
+  make_previews: { type: boolean, default: true }
+steps:
+  - id: count
+    run: |
+      python - <<'PY'
+      import json
+      scenes = json.load(open("/work/inputs.json"))["scenes"]
+      json.dump({"total": len(scenes)}, open("/work/outputs.json", "w"))
+      PY
+    with:
+      scenes: ${{ inputs.scenes }}
+    outputs:
+      total: { type: integer, description: Number of scenes }
+  - id: per_scene
+    if: ${{ steps.count.outputs.total > 0 }}
+    for_each: ${{ inputs.scenes }}
+    as: scene
+    max_parallelism: 4
+    let:
+      scene_id: ${{ scene.id }}
+    steps:
+      - id: per_band
+        for_each: ${{ scene.bands }}
+        as: band
+        steps:
+          - id: band_cog
+            uses: gdal.translate@1
+            with:
+              source: ${{ band.path }}
+              format: COG
+            resources:
+              requests: { cpu: "1", memory: 2Gi }
+              limits: { cpu: "2", memory: 4Gi }
+            timeout: 30m
+            retries: 2
+            staging: copy
+        outputs:
+          cogs: ${{ steps.band_cog.outputs.result }}
+      - id: preview
+        if: ${{ inputs.make_previews }}
+        uses: gdal.translate@1
+        with:
+          source: ${{ steps.per_band.outputs.cogs[0] }}
+          format: PNG
+    outputs:
+      previews: ${{ steps.preview.outputs.result }}
+  - id: info
+    for_each: ${{ steps.per_scene.outputs.previews }}
+    as: preview
+    uses: gdal.info@1
+    with:
+      source: ${{ preview }}

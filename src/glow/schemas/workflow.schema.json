@@ -1,0 +1,275 @@
+{
+  "$defs": {
+    "InputSpec": {
+      "additionalProperties": false,
+      "description": "A workflow input declared under top-level `inputs`.",
+      "properties": {
+        "default": {},
+        "description": {
+          "type": "string"
+        },
+        "media_type": {
+          "maxLength": 255,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "object",
+            "array",
+            "uri",
+            "file",
+            "bundle",
+            "group"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "InputSpec",
+      "type": "object"
+    },
+    "OutputDecl": {
+      "additionalProperties": false,
+      "description": "A typed output declared by a `run` or `script` step.",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "media_type": {
+          "maxLength": 255,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "object",
+            "array",
+            "file",
+            "bundle",
+            "group"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "OutputDecl",
+      "type": "object"
+    },
+    "ResourceSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "cpu": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9]+(\\.[0-9]+)?m?$",
+              "type": "string"
+            },
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            }
+          ]
+        },
+        "gpu": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "memory": {
+          "pattern": "^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi|Ti|Pi|Ei|k|M|G|T|P|E)?$",
+          "type": "string"
+        }
+      },
+      "title": "ResourceSpec",
+      "type": "object"
+    },
+    "Resources": {
+      "additionalProperties": false,
+      "properties": {
+        "limits": {
+          "$ref": "#/$defs/ResourceSpec"
+        },
+        "requests": {
+          "$ref": "#/$defs/ResourceSpec"
+        }
+      },
+      "title": "Resources",
+      "type": "object"
+    },
+    "Step": {
+      "additionalProperties": false,
+      "description": "One step. Its body is `uses`, `run`, `script`, or a `for_each` fan-out.\n\nA `for_each` step either holds nested `steps` (a block, whose interface is\n`outputs` mapping names to expressions) or exactly one inline body.",
+      "properties": {
+        "as": {
+          "maxLength": 63,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "type": "string"
+        },
+        "for_each": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "items": {},
+              "type": "array"
+            }
+          ]
+        },
+        "id": {
+          "maxLength": 63,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "type": "string"
+        },
+        "if": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "let": {
+          "additionalProperties": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "propertyNames": {
+            "maxLength": 63,
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "type": "object"
+        },
+        "max_parallelism": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "outputs": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/OutputDecl"
+              }
+            ]
+          },
+          "propertyNames": {
+            "maxLength": 63,
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "type": "object"
+        },
+        "resources": {
+          "$ref": "#/$defs/Resources"
+        },
+        "retries": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run": {
+          "description": "Inline bash script.",
+          "type": "string"
+        },
+        "script": {
+          "description": "Inline Python script.",
+          "type": "string"
+        },
+        "secrets": {
+          "items": {
+            "maxLength": 253,
+            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "staging": {
+          "enum": [
+            "copy",
+            "none",
+            "auto"
+          ],
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/Step"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "timeout": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "pattern": "^([0-9]+h([0-9]+m)?([0-9]+s)?|[0-9]+m([0-9]+s)?|[0-9]+s)$",
+              "type": "string"
+            }
+          ]
+        },
+        "uses": {
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+(@[0-9]+)?$",
+          "type": "string"
+        },
+        "with": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "Step",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A GLOW v2 workflow file.",
+  "properties": {
+    "inputs": {
+      "additionalProperties": {
+        "$ref": "#/$defs/InputSpec"
+      },
+      "propertyNames": {
+        "maxLength": 63,
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+      },
+      "type": "object"
+    },
+    "name": {
+      "maxLength": 63,
+      "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+      "type": "string"
+    },
+    "steps": {
+      "items": {
+        "$ref": "#/$defs/Step"
+      },
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "name",
+    "steps"
+  ],
+  "title": "GLOW workflow",
+  "type": "object"
+}

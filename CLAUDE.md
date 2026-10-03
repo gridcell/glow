@@ -60,18 +60,29 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 
 ## Build & Test
 
-_Add your build and test commands here_
+Python 3.12 managed with uv.
 
 ```bash
-# Example:
-# npm install
-# npm test
+uv sync                              # install
+uv run ruff check                    # lint
+uv run ruff format --check           # format check
+uv run pytest                        # tests
+uv run glow schema export --check    # committed schemas match the models
+uv run glow schema export            # regenerate schemas after a model change
+uv run glow validate <file>          # validate a workflow or toolpack manifest
 ```
 
 ## Architecture Overview
 
-_Add a brief overview of your project architecture_
+- `src/glow/models/`: pydantic models for workflow files and toolpack manifests. They are the source of truth.
+- `src/glow/schemas/`: JSON Schemas generated from the models. Never edit by hand; CI checks they match.
+- `src/glow/validation.py`: YAML loading and validation (JSON Schema first, then model cross-field rules).
+- `src/glow/expressions/`: `${{ }}` span finder. Expressions stay opaque strings for now.
+- `src/glow/cli.py`: typer CLI (`glow validate`, `glow schema export`).
+- `examples/`, `toolpacks/`: example workflows and toolpack manifests, all validated by the tests.
+- `docs/decisions.md`: adopted design decisions.
 
 ## Conventions & Patterns
 
-_Add your project-specific conventions here_
+- Models use `extra="forbid"`. Cross-field rules raise `PydanticCustomError` with a type starting with `glow_`.
+- No em-dashes in code or docs.

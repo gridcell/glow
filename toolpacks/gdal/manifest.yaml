@@ -1,0 +1,75 @@
+# GDAL toolpack. The image digest is a placeholder until the toolpack images
+# are built and published (issue 10).
+toolpack: gdal
+image: ghcr.io/sparkgeo/glow-gdal@sha256:0000000000000000000000000000000000000000000000000000000000000000 # digest, never a tag
+tools:
+  - name: gdal.translate
+    description: Convert a raster with gdal_translate. Output media type follows `format`.
+    inputs:
+      source:
+        type: file
+        media_type:
+          - "image/tiff; application=geotiff"
+          - image/jp2
+          - application/x-netcdf
+          - application/vnd.gdal.vrt+xml
+        remote: true # may receive s3:// and read via /vsis3/
+      subdataset: { type: string }
+      format: { type: string, enum: [COG, GTiff, PNG], default: COG }
+      creation_options: { type: object, additionalProperties: { type: string } }
+    required: [source]
+    outputs:
+      result:
+        type: file
+        path: out.{ext}
+        media_type_from: format
+        media_types:
+          COG: "image/tiff; application=geotiff; profile=cloud-optimized"
+          GTiff: "image/tiff; application=geotiff"
+          PNG: image/png
+    command: [gdal_translate_wrapper]
+
+  - name: gdal.dem.color_relief
+    description: >-
+      Colorize a single-band raster with gdaldem color-relief and a color table,
+      optionally resized. A size of 0 on one axis keeps the aspect ratio.
+    inputs:
+      source:
+        type: file
+        media_type: ["image/tiff; application=geotiff", image/jp2, application/vnd.gdal.vrt+xml]
+        remote: true
+      color_table:
+        type: file
+        media_type: text/plain
+        description: gdaldem color table, one "value r g b [a]" entry per line.
+      size:
+        type: array
+        items: { type: integer, minimum: 0 }
+        minItems: 2
+        maxItems: 2
+        description: Output width and height in pixels.
+      format: { type: string, enum: [PNG, GTiff, COG], default: PNG }
+    required: [source, color_table]
+    outputs:
+      result:
+        type: file
+        path: out.{ext}
+        media_type_from: format
+        media_types:
+          PNG: image/png
+          GTiff: "image/tiff; application=geotiff"
+          COG: "image/tiff; application=geotiff; profile=cloud-optimized"
+    command: [gdal_color_relief_wrapper]
+
+  - name: gdal.info
+    description: Report raster metadata with gdalinfo as JSON.
+    inputs:
+      source:
+        type: file
+        media_type: "*"
+        remote: true
+      stats: { type: boolean, default: false, description: Compute band statistics. }
+    required: [source]
+    outputs:
+      info: { type: object, description: The gdalinfo -json document. }
+    command: [gdal_info_wrapper]

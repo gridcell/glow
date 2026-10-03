@@ -1,0 +1,10 @@
+# Three deliberate problems: an unknown top-level key, a step without an id,
+# and a step with two bodies.
+name: broken
+schedule: daily
+steps:
+  - uses: gdal.info@1
+    with: { source: "s3://bucket/a.tif" }
+  - id: both
+    uses: gdal.info@1
+    run: echo hi
