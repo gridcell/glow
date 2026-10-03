@@ -1,0 +1,10 @@
+name: if-not-boolean
+inputs:
+  scene: { type: file, media_type: "image/tiff; application=geotiff" }
+  label: { type: string }
+steps:
+  - id: info
+    if: ${{ inputs.label }}
+    uses: gdal.info@1
+    with:
+      source: ${{ inputs.scene }}

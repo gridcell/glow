@@ -8,8 +8,11 @@ import typer
 from glow.lint import lint_manifest
 from glow.lock import LockError, lock_is_current, lock_path, write_lock
 from glow.manifests import ManifestError
+from glow.plan import render_plan
 from glow.schema_export import schema_dir, stale_schemas, write_schemas
-from glow.validation import DocumentReadError, validate_file
+from glow.validate import DEFAULT_TOOLPACKS, ValidationReport
+from glow.validate import validate as validate_path
+from glow.validation import DocumentReadError
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="GLOW v2 workflow tools.")
 schema_app = typer.Typer(no_args_is_help=True, help="Manage the generated JSON Schemas.")
@@ -17,26 +20,53 @@ app.add_typer(schema_app, name="schema")
 toolpack_app = typer.Typer(no_args_is_help=True, help="Check toolpack manifests and the lock.")
 app.add_typer(toolpack_app, name="toolpack")
 
-DEFAULT_TOOLPACKS = Path("toolpacks")
+
+ToolpacksOption = Annotated[
+    Path, typer.Option(help="Toolpacks directory holding registry.lock.yaml.")
+]
+
+
+def _report(file: Path, toolpacks: Path) -> ValidationReport:
+    try:
+        report = validate_path(file, toolpacks)
+    except DocumentReadError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    if not report.ok:
+        for message in report.messages():
+            typer.echo(message, err=True)
+        count = len(report.problems) + len(report.errors)
+        typer.echo(f"{file}: {count} problem(s) found", err=True)
+        raise typer.Exit(1)
+    return report
 
 
 @app.command()
 def validate(
     file: Annotated[Path, typer.Argument(help="Workflow file or toolpack manifest (YAML).")],
+    toolpacks: ToolpacksOption = DEFAULT_TOOLPACKS,
 ) -> None:
-    """Validate a workflow file or toolpack manifest against its JSON Schema."""
-    try:
-        result = validate_file(file)
-    except DocumentReadError as exc:
-        typer.echo(f"error: {exc}", err=True)
-        raise typer.Exit(2) from exc
-    if result.ok:
-        typer.echo(f"ok: {file} is a valid {result.kind}")
-        return
-    for problem in result.problems:
-        typer.echo(f"error: {problem}", err=True)
-    typer.echo(f"{file}: {len(result.problems)} problem(s) found", err=True)
-    raise typer.Exit(1)
+    """Validate a workflow file or toolpack manifest.
+
+    Workflows are checked against the JSON Schema, then for tools, references,
+    scopes, cycles and edge types. Manifests get the schema check only.
+    """
+    report = _report(file, toolpacks)
+    typer.echo(f"ok: {file} is a valid {report.kind}")
+
+
+@app.command()
+def plan(
+    file: Annotated[Path, typer.Argument(help="Workflow file (YAML).")],
+    toolpacks: ToolpacksOption = DEFAULT_TOOLPACKS,
+    as_json: Annotated[bool, typer.Option("--json", help="Print the IR as JSON.")] = False,
+) -> None:
+    """Validate a workflow and print its steps in dependency order with edge types."""
+    report = _report(file, toolpacks)
+    if report.ir is None:
+        typer.echo(f"error: {file} is a {report.kind}, not a workflow", err=True)
+        raise typer.Exit(1)
+    typer.echo(report.ir.model_dump_json(indent=2) if as_json else render_plan(report.ir))
 
 
 @schema_app.command("export")

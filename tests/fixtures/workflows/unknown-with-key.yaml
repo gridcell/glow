@@ -1,0 +1,9 @@
+name: unknown-with-key
+inputs:
+  scene: { type: file, media_type: "image/tiff; application=geotiff" }
+steps:
+  - id: cog
+    uses: gdal.translate@1
+    with:
+      source: ${{ inputs.scene }}
+      compression: DEFLATE

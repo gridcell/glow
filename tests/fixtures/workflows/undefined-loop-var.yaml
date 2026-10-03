@@ -1,0 +1,10 @@
+name: undefined-loop-var
+inputs:
+  scenes: { type: array }
+steps:
+  - id: info
+    for_each: ${{ inputs.scenes }}
+    as: scene
+    uses: gdal.info@1
+    with:
+      source: ${{ item.path }}

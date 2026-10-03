@@ -1,0 +1,6 @@
+name: missing-required
+steps:
+  - id: cog
+    uses: gdal.translate@1
+    with:
+      format: COG

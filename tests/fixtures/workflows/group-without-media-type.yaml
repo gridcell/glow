@@ -1,0 +1,24 @@
+# Like sst-ingest, but fs.group is not told the media type of the files it
+# lists, so the source edge can only be checked at runtime.
+name: group-without-media-type
+inputs:
+  source: { type: uri }
+steps:
+  - id: items
+    uses: fs.group
+    with:
+      root: ${{ inputs.source }}
+      pattern: "sst_(?P<date>\\d{8})\\.nc$"
+      key: date
+  - id: per_item
+    for_each: ${{ steps.items.outputs.groups }}
+    as: g
+    steps:
+      - id: cog
+        uses: gdal.translate@1
+        with:
+          source: ${{ g.files[0].path }}
+          subdataset: sea_surface_temperature
+          format: COG
+    outputs:
+      cog: ${{ steps.cog.outputs.result }}
