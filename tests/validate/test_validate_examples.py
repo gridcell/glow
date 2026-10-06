@@ -21,6 +21,7 @@ def test_examples_are_valid(name: str) -> None:
         ("unknown-tool.yaml", Code.UNKNOWN_TOOL),
         ("unknown-with-key.yaml", Code.UNKNOWN_WITH_KEY),
         ("missing-required.yaml", Code.MISSING_REQUIRED_INPUT),
+        ("invalid-with-value.yaml", Code.INVALID_WITH_VALUE),
         ("later-step.yaml", Code.LATER_STEP),
         ("block-member-outside.yaml", Code.BLOCK_MEMBER),
         ("undefined-loop-var.yaml", Code.UNDEFINED_NAME),
@@ -48,6 +49,7 @@ def test_codes_are_stable() -> None:
         "INVALID_MEDIA_TYPE": "GLOW-E004",
         "MALFORMED_EXPRESSION": "GLOW-E005",
         "EXPRESSION_TOO_COSTLY": "GLOW-E006",
+        "INVALID_WITH_VALUE": "GLOW-E007",
         "UNDEFINED_NAME": "GLOW-E010",
         "LATER_STEP": "GLOW-E011",
         "BLOCK_MEMBER": "GLOW-E012",
@@ -281,10 +283,62 @@ def codes(check_yaml: Check, steps: str) -> list[Code]:
             [],
             id="computed-boolean-if",
         ),
+        pytest.param(
+            "  - id: a\n    uses: gdal.translate@1\n"
+            "    with: { source: '${{ inputs.scene }}', format: JPEG }\n",
+            [Code.INVALID_WITH_VALUE],
+            id="constant-outside-enum",
+        ),
+        pytest.param(
+            "  - id: a\n    uses: gdal.dem.color_relief@1\n"
+            "    with: { source: '${{ inputs.scene }}', color_table: c.txt, size: [600] }\n",
+            [Code.INVALID_WITH_VALUE],
+            id="constant-array-too-short",
+        ),
+        pytest.param(
+            "  - id: a\n    uses: gdal.dem.color_relief@1\n"
+            "    with: { source: '${{ inputs.scene }}', color_table: c.txt, size: [-1, 0] }\n",
+            [Code.INVALID_WITH_VALUE],
+            id="constant-below-minimum",
+        ),
+        pytest.param(
+            "  - id: a\n    uses: gdal.dem.color_relief@1\n"
+            "    with: { source: '${{ inputs.scene }}', color_table: c.txt,"
+            " size: ['${{ size(inputs.scenes) }}'] }\n",
+            [Code.INVALID_WITH_VALUE],
+            id="array-length-checked-around-expression",
+        ),
+        pytest.param(
+            "  - id: a\n    uses: gdal.dem.color_relief@1\n"
+            "    with: { source: '${{ inputs.scene }}', color_table: c.txt,"
+            " size: ['${{ size(inputs.scenes) }}', 0] }\n",
+            [],
+            id="expression-member-not-checked",
+        ),
+        pytest.param(
+            "  - id: a\n    uses: gdal.translate@1\n"
+            "    with: { source: '${{ inputs.scene }}', format: 'C${{ string(inputs.flag) }}' }\n",
+            [],
+            id="interpolated-string-not-checked",
+        ),
+        pytest.param(
+            "  - id: a\n    uses: stac.item@1\n    with:\n      id: x\n"
+            "      datetime: '2024-01-01T00:00:00Z'\n"
+            "      assets: { data: { title: '${{ string(inputs.flag) }}' } }\n",
+            [Code.INVALID_WITH_VALUE],
+            id="required-member-checked-around-expression",
+        ),
     ],
 )
 def test_error_cases(check_yaml: Check, steps: str, expected: list[Code]) -> None:
     assert codes(check_yaml, steps) == expected
+
+
+def test_invalid_with_value_names_the_member() -> None:
+    report = validate(FIXTURES / "invalid-with-value.yaml", TOOLPACKS)
+    assert report.messages() == [
+        "error: cog.with.creation_options.PREDICTOR [GLOW-E007]\n  2 is not of type 'string'"
+    ]
 
 
 def test_unknown_tool_does_not_cascade(check_yaml: Check) -> None:

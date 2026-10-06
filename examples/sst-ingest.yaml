@@ -27,7 +27,7 @@ steps:
           source: ${{ g.files[0].path }}
           subdataset: sea_surface_temperature
           format: COG
-          creation_options: { COMPRESS: DEFLATE, PREDICTOR: 2 }
+          creation_options: { COMPRESS: DEFLATE, PREDICTOR: "2" }
       - id: thumb
         uses: gdal.dem.color_relief@1
         with:

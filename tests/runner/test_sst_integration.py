@@ -85,6 +85,9 @@ def test_sst_ingest_publishes_one_item_per_file(
         item = json.loads((dest / "noaa-sst" / f"sst-{day}.json").read_text())
         assert item["type"] == "Feature"
         assert set(item["assets"]) >= {"data", "thumbnail"}
+        # The fixtures cover -130..-120 E, 45..50 N; the footprint comes from the COG.
+        assert item["bbox"] == pytest.approx([-130.0, 45.0, -120.0, 50.0])
+        assert item["geometry"]["type"] == "Polygon"
         for asset in ("data", "thumbnail"):
             href = item["assets"][asset]["href"]
             assert Path(href.removeprefix("file://")).is_file(), href

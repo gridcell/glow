@@ -40,7 +40,7 @@ def test_sst_example_loads() -> None:
     assert per_item.outputs == {"item": "${{ steps.item.outputs.item }}"}
     assert per_item.steps is not None
     assert per_item.steps[0].with_ is not None
-    assert per_item.steps[0].with_["creation_options"] == {"COMPRESS": "DEFLATE", "PREDICTOR": 2}
+    assert per_item.steps[0].with_["creation_options"] == {"COMPRESS": "DEFLATE", "PREDICTOR": "2"}
 
 
 def test_minimal_example_covers_if_run_and_nested_for_each() -> None:

@@ -88,7 +88,7 @@ uv run glow toolpack lock            # regenerate the lock after a manifest chan
 - `src/glow/schemas/`: JSON Schemas generated from the models. Never edit by hand; CI checks they match.
 - `src/glow/validation.py`: YAML loading and validation (JSON Schema first, then model cross-field rules).
 - `src/glow/expressions/`: `${{ }}` span finder (`syntax.py`); `cel.py` parses with cel-python, collects references, applies the cost limit and evaluates (`Evaluator`); `typecheck.py` infers GLOW types of whole expressions; `functions.py` holds `date`, `path.*` and `media.*`; `refs.py` (`analyze`) is the interface the validator uses.
-- `src/glow/validate/`: semantic checks after the schema pass: `tools.py` (uses, with keys), `scopes.py` (symbol tables), `graph.py` (later-step refs, cycles, order), `edges.py` (edge types), `errors.py` (Appendix B messages, `GLOW-Exxx` codes).
+- `src/glow/validate/`: semantic checks after the schema pass: `tools.py` (uses, with keys, constant with values against the input schema glow-exec uses), `scopes.py` (symbol tables), `graph.py` (later-step refs, cycles, order), `edges.py` (edge types), `errors.py` (Appendix B messages, `GLOW-Exxx` codes).
 - `src/glow/ir.py`: JSON round-trippable IR of a validated workflow; `src/glow/plan.py` renders it for `glow plan`.
 - `src/glow/compile/`: IR to Argo Workflow with Hera. `argo.py` (templates, DAG tasks, glow-exec pod shape), `scope.py` (references a block cannot see yet, `GLOW-E050`), `naming.py` (Argo-safe names, collisions `GLOW-E052`), `encoding.py` (base64 of `raw-with`, tool specs, scripts). Golden files in `tests/compile/golden/`.
 - `src/glow/registry.py`, `src/glow/lock.py`, `src/glow/manifests.py`: resolve `uses:` to a tool and image via `toolpacks/registry.lock.yaml`.

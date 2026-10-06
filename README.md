@@ -68,6 +68,7 @@ error: cog.with.source [GLOW-E030]
 | `GLOW-E004` | Media type in the workflow does not parse |
 | `GLOW-E005` | `${{` without a closing `}}`, or the expression is not valid CEL |
 | `GLOW-E006` | Expression is over the cost limit |
+| `GLOW-E007` | Constant `with` value does not match the tool input (type, enum, range, length) |
 | `GLOW-E010` | Name is not defined |
 | `GLOW-E011` | Reference to a step that runs later |
 | `GLOW-E012` | Reference to a member of a `for_each` block from outside it |
@@ -153,20 +154,121 @@ UPDATE_GOLDEN=1 uv run pytest tests/compile
 
 CI runs `argo lint --offline` on every golden file.
 
-Run a workflow on this machine with Docker (see [docs/runner.md](docs/runner.md)):
+Run a workflow on this machine with Docker (see [docs/runner.md](docs/runner.md)).
+Built-ins run in-process; every other step is a `docker run` of its image
+under glow-exec, with the parameters the compiler emits.
 
-```bash
-make images   # toolpack images, glow-exec, engine and sandbox
-uv run glow run examples/sst-ingest.yaml \
-  --input source=tests/fixtures/data/sst --input dest=/tmp/sst-out \
-  --input collection=noaa-sst --input color_table=tests/fixtures/data/sst/colors.txt
-uv run glow run examples/sst-ingest.yaml --dry-run   # print the plan only
+### Example: run the SST workflow
+
+This example runs `examples/sst-ingest.yaml` end to end and writes a STAC
+collection to `./out`.
+
+1. Build the images: the toolpacks, glow-exec, engine and sandbox.
+
+   ```bash
+   make images
+   ```
+
+2. Generate the two SST netCDF files. They are not committed.
+
+   ```bash
+   docker run --rm --network=none --user "$(id -u):$(id -g)" \
+     --mount "type=bind,source=$PWD/tests/fixtures/data/sst,target=/data" \
+     local/gdal:dev python3 /data/make_fixtures.py /data
+   ```
+
+   This writes `sst_20240101.nc` and `sst_20240102.nc` into
+   `tests/fixtures/data/sst/`.
+
+3. Optional: print the plan without running anything.
+
+   ```bash
+   uv run glow run examples/sst-ingest.yaml --dry-run
+   ```
+
+4. Run the workflow:
+
+   ```bash
+   uv run glow run examples/sst-ingest.yaml \
+     --input source=tests/fixtures/data/sst \
+     --input dest=./out \
+     --input collection=noaa-sst \
+     --input color_table=tests/fixtures/data/sst/colors.txt
+   ```
+
+   The runner prints one line per top-level step and then the run directory:
+
+   ```text
+   ok: items
+   ok: per_item
+   ok: publish
+   run sst-ingest-20261007t161609-f4f01a succeeded; outputs under /home/you/glow_v2/.glow/runs/sst-ingest-20261007t161609-f4f01a
+   ```
+
+The `publish` step writes the collection to `./out`, one STAC item per date
+and a feature collection of all items:
+
+```text
+out/
+└── noaa-sst/
+    ├── items.json          FeatureCollection with both items
+    ├── sst-20240101.json
+    └── sst-20240102.json
 ```
 
-Built-ins run in-process; every other step is a `docker run` of its image
-under glow-exec, with the parameters the compiler emits. Each step's
-`outputs.resolved.json` is kept under `.glow/runs/<run-id>/steps/`. The SST
-netCDF files are generated, not committed; docs/runner.md shows how.
+Each item has the COG as its `data` asset, the PNG as its `thumbnail` asset,
+and the render extension from the color table (`colormap` shortened here):
+
+```json
+{
+  "type": "Feature",
+  "stac_version": "1.0.0",
+  "id": "sst-20240101",
+  "properties": {
+    "datetime": "2024-01-01T00:00:00Z",
+    "renders": {
+      "sst": { "assets": ["data"], "colormap": { "...": "..." }, "rescale": [[0, 30]] }
+    }
+  },
+  "bbox": [-130.0, 45.0, -120.0, 50.0],
+  "assets": {
+    "data": {
+      "href": "/home/you/glow_v2/.glow/runs/sst-ingest-20261007t161609-f4f01a/steps/per_item/20240101/cog/result/out.tif",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+      "title": "Sea surface temperature",
+      "roles": ["data"]
+    },
+    "thumbnail": {
+      "href": "/home/you/glow_v2/.glow/runs/sst-ingest-20261007t161609-f4f01a/steps/per_item/20240101/thumb/result/out.png",
+      "type": "image/png",
+      "roles": ["thumbnail"]
+    }
+  },
+  "stac_extensions": ["https://stac-extensions.github.io/render/v2.0.0/schema.json"]
+}
+```
+
+The asset files stay in the run directory, so the `href` values point there.
+The run directory keeps every step's files, log and
+`outputs.resolved.json`:
+
+```text
+.glow/runs/sst-ingest-20261007t161609-f4f01a/
+├── run.json
+└── steps/
+    ├── items/outputs.resolved.json
+    ├── per_item/
+    │   ├── outputs.resolved.json             fanned-in item outputs
+    │   ├── 20240101/
+    │   │   ├── cog/{log.txt, outputs.resolved.json, result/out.tif}
+    │   │   ├── thumb/{log.txt, outputs.resolved.json, result/out.png}
+    │   │   ├── render/{log.txt, outputs.resolved.json}
+    │   │   └── item/{log.txt, outputs.resolved.json, item/item.json}
+    │   └── 20240102/...
+    └── publish/{log.txt, outputs.resolved.json}
+```
+
+### Toolpacks
 
 Lint toolpack manifests, and regenerate or check the registry lock:
 

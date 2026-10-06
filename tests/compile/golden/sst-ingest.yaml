@@ -51,7 +51,7 @@ spec:
         arguments:
           parameters:
           - name: raw-with
-            value: eyJzb3VyY2UiOiIke3sgZy5maWxlc1swXS5wYXRoIH19Iiwic3ViZGF0YXNldCI6InNlYV9zdXJmYWNlX3RlbXBlcmF0dXJlIiwiZm9ybWF0IjoiQ09HIiwiY3JlYXRpb25fb3B0aW9ucyI6eyJDT01QUkVTUyI6IkRFRkxBVEUiLCJQUkVESUNUT1IiOjJ9fQ==
+            value: eyJzb3VyY2UiOiIke3sgZy5maWxlc1swXS5wYXRoIH19Iiwic3ViZGF0YXNldCI6InNlYV9zdXJmYWNlX3RlbXBlcmF0dXJlIiwiZm9ybWF0IjoiQ09HIiwiY3JlYXRpb25fb3B0aW9ucyI6eyJDT01QUkVTUyI6IkRFRkxBVEUiLCJQUkVESUNUT1IiOiIyIn19
           - name: scope
             value: '{"inputs":{"source":{{workflow.parameters.source}},"dest":{{workflow.parameters.dest}},"collection":{{workflow.parameters.collection}},"color_table":{{workflow.parameters.color_table}}},"g":{{inputs.parameters.loop-per-item}}}'
           - name: run-prefix

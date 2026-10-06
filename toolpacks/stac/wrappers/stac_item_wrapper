@@ -69,11 +69,9 @@ def local_path(href: str) -> Path | None:
 
 def footprint(assets: dict[str, pystac.Asset]) -> tuple[dict[str, Any] | None, list[float] | None]:
     """Geometry and bbox in WGS84 from the first readable raster asset."""
-    try:
-        import rasterio
-        from rasterio.warp import transform_bounds
-    except ImportError:
-        return None, None
+    import rasterio
+    from rasterio.warp import transform_bounds
+
     ordered = sorted(assets.values(), key=lambda asset: "data" not in (asset.roles or []))
     for asset in ordered:
         path = local_path(asset.href)

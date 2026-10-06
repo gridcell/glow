@@ -1,4 +1,4 @@
-name: undeclared-output
+name: invalid-with-value
 inputs:
   scene: { type: file, media_type: "image/tiff; application=geotiff" }
 steps:
@@ -6,7 +6,4 @@ steps:
     uses: gdal.translate@1
     with:
       source: ${{ inputs.scene }}
-  - id: info
-    uses: gdal.info@1
-    with:
-      source: ${{ steps.cog.outputs.cog }}
+      creation_options: { COMPRESS: DEFLATE, PREDICTOR: 2 }
