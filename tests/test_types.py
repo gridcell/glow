@@ -539,3 +539,32 @@ def test_parse_type_or_unknown() -> None:
 def test_timestamp_renders_and_feeds_a_string() -> None:
     assert render(TIMESTAMP) == "timestamp"
     assert is_assignable(TIMESTAMP, STRING).status == "ok"
+
+
+# --- categories --------------------------------------------------------------
+
+
+def test_category_input_accepts_its_formats_and_their_profiles() -> None:
+    raster = parse_type(ToolInput(type="file", category="raster"))
+    assert isinstance(raster, File) and raster.categories == ("raster",)
+    assert is_assignable(file_of(COG), raster).status == "ok"
+    assert is_assignable(file_of(NETCDF), raster).status == "ok"
+    result = is_assignable(file_of("application/geo+json"), raster)
+    assert result.status == "mismatch"
+    assert result.reason is not None and result.reason.startswith("expects: file[raster]\n")
+
+
+def test_category_adds_to_media_type() -> None:
+    decl = {"type": "file", "media_type": "image/png", "category": ["raster", "vector"]}
+    both = parse_type(decl)
+    assert render(both) == "file[raster | vector | image/png]"
+    assert is_assignable(file_of("image/png"), both).status == "ok"
+    assert is_assignable(file_of("application/geo+json"), both).status == "ok"
+
+
+def test_unknown_category_is_a_media_type_error() -> None:
+    with pytest.raises(MediaTypeError, match="unknown category 'lidar'"):
+        parse_type({"type": "file", "category": "lidar"})
+    assert parse_type_or_unknown({"type": "file", "category": "lidar"}) == Unknown(
+        "unknown category 'lidar'"
+    )

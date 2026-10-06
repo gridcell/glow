@@ -58,6 +58,24 @@ Minor changes are additive.
 - **Trade-off:** Needs discipline: any breaking change needs a new major
   version.
 
+## Media type categories, not a type hierarchy
+
+Data inputs and outputs use media types. An input can also accept a category,
+such as `raster` or `vector`, from `src/glow/categories.py`. GLOW v1's
+`type-hierarchy.yml` tree was considered and not adopted.
+
+- **Why:** Media types are what tools, S3, HTTP and STAC already use, and
+  glow-exec needs them for `{ext}`, extension checks and Content-Type. The
+  tree's main benefit is accepting "any raster" without listing formats.
+  Categories give that benefit without a second type system.
+- **Why not a tree:** A tree gives each type one parent. Some formats have two
+  roles: GeoPackage holds raster and vector data. With tags, a format can be
+  in more than one category.
+- **Trade-off:** Categories are maintained in GLOW. Adding a media type to a
+  category widens every input that uses the category.
+- **Not done:** The v1 string subtypes (CRS, URL, temporal) are not ported.
+  The JSON Schema `format` keyword can carry them later.
+
 ## Expression checking in the validator
 
 These follow from decisions 1 and 3 and are recorded here because they change

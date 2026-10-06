@@ -36,6 +36,8 @@ def encode_type(glow_type: GlowType) -> dict[str, Any]:
         "media_types": [str(media_type) for media_type in glow_type.media_types],
         "unknown_reason": glow_type.unknown_reason,
     }
+    if glow_type.categories:
+        data["categories"] = list(glow_type.categories)
     if isinstance(glow_type, Group):
         data["captures"] = list(glow_type.captures)
     return data
@@ -56,9 +58,11 @@ def decode_type(value: Any) -> GlowType:
     if kind in _DATA_KINDS:
         media_types = tuple(MediaType.parse(text) for text in value.get("media_types", []))
         reason = value.get("unknown_reason")
+        categories = tuple(value.get("categories", []))
         if kind == "group":
-            return Group(media_types, reason, tuple(value.get("captures", [])))
-        return _DATA_KINDS[kind](media_types, reason)
+            captures = tuple(value.get("captures", []))
+            return Group(media_types, reason, captures, categories=categories)
+        return _DATA_KINDS[kind](media_types, reason, categories=categories)
     raise ValueError(f"unknown type kind {kind!r}")
 
 

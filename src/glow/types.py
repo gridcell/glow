@@ -3,10 +3,11 @@
 Scalars and JSON objects are JSON Schema. Data on disk is one of three kinds:
 `file`, `bundle` or `group`, each carrying the media types it declares. An
 output declares the single most specific media type it produces; an input
-declares the set it accepts. They match when the base type and every
-parameter named by the accepted type agree, so `image/tiff; application=geotiff`
-accepts `image/tiff; application=geotiff; profile=cloud-optimized`. There is
-no type tree; `*` accepts anything.
+declares the set it accepts, directly or through a category such as `raster`
+(`glow.categories`). They match when the base type and every parameter named
+by the accepted type agree, so `image/tiff; application=geotiff` accepts
+`image/tiff; application=geotiff; profile=cloud-optimized`. There is no type
+tree; `*` accepts anything.
 
 `is_assignable` decides one edge as `ok`, `runtime_check` or `mismatch`. The
 cases section 5.5 says downgrade to runtime (a group file without a media
@@ -23,6 +24,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal
 
+from glow.categories import CATEGORY_MEDIA_TYPES, as_list
+from glow.categories import expand as expand_categories
 from glow.expressions.syntax import OPEN as EXPRESSION_OPEN
 from glow.models import ToolInput, ToolOutput
 
@@ -150,13 +153,16 @@ class _DataKind:
 
     An empty `media_types` means undeclared. `unknown_reason` explains why the
     media type can only be known at runtime, such as an output whose media
-    type follows an input given as an expression.
+    type follows an input given as an expression. `categories` names the
+    categories of an input; their media types are already in `media_types`,
+    and the names are kept so messages read `file[raster]`.
     """
 
     kind: ClassVar[str]
 
     media_types: tuple[MediaType, ...] = ()
     unknown_reason: str | None = None
+    categories: tuple[str, ...] = field(default=(), kw_only=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,9 +243,19 @@ def render(glow_type: GlowType) -> str:
         case Scalar(schema):
             return str(schema.get("title") or schema.get("type") or "any")
         case _:
-            if not glow_type.media_types:
+            labels = _media_labels(glow_type)
+            if not labels:
                 return glow_type.kind
-            return f"{glow_type.kind}[{' | '.join(map(str, glow_type.media_types))}]"
+            return f"{glow_type.kind}[{' | '.join(labels)}]"
+
+
+def _media_labels(data: "_DataKind") -> list[str]:
+    """Category names, then the media types no category covers."""
+    from_categories = {
+        MediaType.parse(text) for name in data.categories for text in CATEGORY_MEDIA_TYPES[name]
+    }
+    own = [str(media_type) for media_type in data.media_types if media_type not in from_categories]
+    return [*data.categories, *own]
 
 
 def is_assignable(produced: GlowType, accepted: GlowType) -> Compatibility:
@@ -378,8 +394,9 @@ def _declaration(decl: Mapping[str, Any] | ToolInput | ToolOutput) -> Mapping[st
 def parse_type(decl: Mapping[str, Any] | ToolInput | ToolOutput) -> GlowType:
     """The type of a tool input or output declaration.
 
-    Raises `MediaTypeError` when a declared media type is malformed. A data
-    kind output with `media_type_from` is unknown here; use
+    An input's `category` adds the category's media types to its own. Raises
+    `MediaTypeError` when a declared media type or category is malformed. A
+    data kind output with `media_type_from` is unknown here; use
     `resolve_output_type` with the step's `with` values instead.
     """
     decl = _declaration(decl)
@@ -388,7 +405,12 @@ def parse_type(decl: Mapping[str, Any] | ToolInput | ToolOutput) -> GlowType:
         reason = None
         if "media_type_from" in decl:
             reason = f"the media type follows input '{decl['media_type_from']}'"
-        return _KINDS[kind](parse_media_types(decl.get("media_type")), reason)
+        try:
+            accepted = expand_categories(decl.get("media_type"), decl.get("category"))
+        except ValueError as exc:
+            raise MediaTypeError(str(exc)) from exc
+        categories = tuple(as_list(decl.get("category")))
+        return _KINDS[kind](parse_media_types(accepted), reason, categories=categories)
     if kind == "array":
         items = decl.get("items")
         return Array(parse_type(items) if items else Unknown("array items are not declared"))

@@ -2,7 +2,7 @@
 
 A tool's `inputs` are JSON Schema properties, restricted to the keywords
 below, plus the data kinds `file`, `bundle` and `group` with their
-`media_type` and `remote` annotations.
+`media_type`, `category` and `remote` annotations.
 """
 
 from pathlib import PurePosixPath
@@ -11,6 +11,7 @@ from typing import Annotated, Any
 from pydantic import Field, StringConstraints, model_validator
 from pydantic_core import PydanticCustomError
 
+from glow.categories import Category
 from glow.models.common import DATA_KINDS, Identifier, MediaType, StrictModel, ValueType
 
 ToolpackName = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]*$", max_length=63)]
@@ -53,6 +54,10 @@ class ToolInput(StrictModel):
     min_items: Annotated[int, Field(ge=0)] | None = Field(default=None, alias="minItems")
     max_items: Annotated[int, Field(ge=0)] | None = Field(default=None, alias="maxItems")
     media_type: MediaType | list[MediaType] | None = None
+    category: Category | list[Category] | None = Field(
+        default=None,
+        description="Accept every media type of these categories, in addition to media_type.",
+    )
     remote: bool | None = Field(
         default=None, description="The tool can read this input from a URI with staging: none."
     )
@@ -61,7 +66,12 @@ class ToolInput(StrictModel):
     def _data_kind_annotations(self) -> "ToolInput":
         if self.type in DATA_KINDS:
             return self
-        for key, value in (("media_type", self.media_type), ("remote", self.remote)):
+        annotations = (
+            ("media_type", self.media_type),
+            ("category", self.category),
+            ("remote", self.remote),
+        )
+        for key, value in annotations:
             if value is not None:
                 raise PydanticCustomError(
                     "glow_tool_input",

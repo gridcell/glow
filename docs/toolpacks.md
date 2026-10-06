@@ -62,13 +62,44 @@ The JSON Schema is `src/glow/schemas/toolpack.schema.json`. The main rules:
 - `image` is a digest reference (`<repository>@sha256:<digest>`), never a tag.
   For local development only, `image: local/<toolpack>:dev` is allowed.
 - `inputs` are JSON Schema properties plus the data kinds `file`, `bundle`
-  and `group`. `media_type` and `remote` are only allowed on data kinds.
+  and `group`. `media_type`, `category` and `remote` are only allowed on data
+  kinds.
+- An input can accept a category, such as `category: raster`, instead of
+  listing every format. It accepts the category's media types plus its own
+  `media_type`, if it has one. Outputs always name a specific media type. See
+  [Media type categories](#media-type-categories).
 - A file output sets `media_type`, or derives it from an input with
   `media_type_from` and `media_types`. The input must have an `enum`, and
   `media_types` must have an entry for every enum value.
 - `path` is a fixed path relative to `/work/out/`. It can contain `{ext}`.
   Absolute paths and `..` are not allowed.
 - Every tool sets `command`.
+
+### Media type categories
+
+A category is a named set of media types, defined in `src/glow/categories.py`.
+A format with two roles is in both categories: GeoPackage is in `raster` and
+`vector`.
+
+| Category | Media types |
+| --- | --- |
+| `raster` | `image/tiff; application=geotiff`, `image/jp2`, `application/x-netcdf`, `application/x-hdf5`, `application/vnd.gdal.vrt+xml`, `application/geopackage+sqlite3` |
+| `vector` | `application/geo+json`, `application/vnd.flatgeobuf`, `application/geopackage+sqlite3` |
+
+```yaml
+inputs:
+  source: { type: file, category: raster, remote: true }
+  overlay: { type: file, category: [vector], media_type: text/csv }
+```
+
+Matching does not change. A category input accepts a cloud-optimized GeoTIFF
+because the category contains `image/tiff; application=geotiff`. Validation
+messages show the category name, for example `expects: file[raster]`.
+
+The compiler gives glow-exec the expanded `media_type` list, so glow-exec does
+not know about categories. When you add a media type to a category, every
+tool that accepts the category accepts it too. Add it only if those tools can
+read it.
 
 ## Naming
 

@@ -5,19 +5,19 @@ tools:
     manifest: gdal/manifest.yaml
     image: local/gdal:dev
     digest: null
-    manifest_sha256: 1fbf6925c891ed7afd4b33c904b7bc92d700474a61936890b299a71a6d67f009
+    manifest_sha256: 2da7bb3e2ad4016ad213e8711aedbbc11fe7b1677627311e5c3801ffa9f540e1
   gdal.info@1:
     toolpack: gdal
     manifest: gdal/manifest.yaml
     image: local/gdal:dev
     digest: null
-    manifest_sha256: 1fbf6925c891ed7afd4b33c904b7bc92d700474a61936890b299a71a6d67f009
+    manifest_sha256: 2da7bb3e2ad4016ad213e8711aedbbc11fe7b1677627311e5c3801ffa9f540e1
   gdal.translate@1:
     toolpack: gdal
     manifest: gdal/manifest.yaml
     image: local/gdal:dev
     digest: null
-    manifest_sha256: 1fbf6925c891ed7afd4b33c904b7bc92d700474a61936890b299a71a6d67f009
+    manifest_sha256: 2da7bb3e2ad4016ad213e8711aedbbc11fe7b1677627311e5c3801ffa9f540e1
   prescient.render_from_color_table@1:
     toolpack: prescient
     manifest: prescient/manifest.yaml

@@ -237,7 +237,9 @@ So a cloud-optimized GeoTIFF fits `image/tiff; application=geotiff`, but a
 plain `image/tiff` does not.
 
 Stage checks the media type of each resolved file map against the input's
-`media_type`. A bare URI has no media type and is not checked.
+`media_type`. A bare URI has no media type and is not checked. An input
+declared with a `category` arrives with the category already expanded into
+`media_type`, so glow-exec has no category logic.
 
 Collect checks each file extension against its media type with a table of
 common extensions in `internal/mediatype`. An unknown extension is accepted.

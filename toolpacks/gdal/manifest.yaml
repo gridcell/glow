@@ -9,11 +9,7 @@ tools:
     inputs:
       source:
         type: file
-        media_type:
-          - "image/tiff; application=geotiff"
-          - image/jp2
-          - application/x-netcdf
-          - application/vnd.gdal.vrt+xml
+        category: raster # any raster format GDAL reads, see src/glow/categories.py
         remote: true # may receive s3:// and read via /vsis3/
       subdataset: { type: string, description: 'netCDF variable, read as NETCDF:"<source>":<subdataset>.' }
       format: { type: string, enum: [COG, GTiff, PNG], default: COG }

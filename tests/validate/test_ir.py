@@ -74,6 +74,10 @@ def test_ir_carries_what_the_compiler_needs() -> None:
     cog = workflow.step("cog")
     assert cog.raw_with["source"] == "${{ g.files[0].path }}"
     assert cog.tool_spec is not None and cog.tool_spec["command"] == ["gdal_translate_wrapper"]
+    # glow-exec only reads media_type, so the raster category arrives expanded.
+    source = cog.tool_spec["inputs"]["source"]
+    assert "category" not in source
+    assert "application/x-netcdf" in source["media_type"]
     per_item = workflow.step("per_item")
     assert per_item.loop is not None
     assert per_item.loop.operand == "${{ steps.items.outputs.groups }}"

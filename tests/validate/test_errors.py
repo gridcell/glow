@@ -8,8 +8,7 @@ def test_array_into_file_matches_appendix_b() -> None:
     [error] = report.errors
     assert error.render().splitlines() == [
         "error: cog.with.source [GLOW-E030]",
-        "  expects: file[image/tiff; application=geotiff | image/jp2 | application/x-netcdf"
-        " | application/vnd.gdal.vrt+xml]",
+        "  expects: file[raster]",
         "  got:     array<group[application/x-netcdf]>  from ${{ steps.items.outputs.groups }}",
         "  hint:    for_each over the array, or .map(...) to extract one value per member",
     ]

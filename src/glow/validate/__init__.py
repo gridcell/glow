@@ -20,6 +20,7 @@ from typing import Any
 
 from glow import ir as glow_ir
 from glow.builtins import BUILTINS
+from glow.categories import expand_declaration
 from glow.lock import LockError
 from glow.manifests import ManifestError
 from glow.models import Step, Workflow, iter_steps
@@ -201,7 +202,13 @@ def _tool_spec(
     step: Step, types: edges.Types, resolved: ResolvedTool | None
 ) -> dict[str, Any] | None:
     if resolved is not None:
-        return resolved.tool.model_dump(mode="json", by_alias=True, exclude_none=True)
+        spec = resolved.tool.model_dump(mode="json", by_alias=True, exclude_none=True)
+        # glow-exec checks staged files against `media_type` only.
+        if "inputs" in spec:
+            spec["inputs"] = {
+                name: expand_declaration(decl) for name, decl in spec["inputs"].items()
+            }
+        return spec
     if step.run is None and step.script is None:
         return None
     inputs = {}

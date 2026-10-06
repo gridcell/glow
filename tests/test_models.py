@@ -5,7 +5,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from glow.models import Step, Workflow, iter_steps
+from glow.models import Step, ToolInput, Workflow, iter_steps
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 
@@ -142,3 +142,11 @@ def test_input_media_type_requires_data_kind() -> None:
     [(loc, error_type, _)] = errors_of(data)
     assert loc == ("inputs", "n")
     assert error_type == "glow_input_media_type"
+
+
+def test_input_category_requires_data_kind_and_a_known_name() -> None:
+    assert ToolInput(type="file", category=["raster", "vector"]).category == ["raster", "vector"]
+    with pytest.raises(ValidationError, match="category is only allowed on file"):
+        ToolInput(type="string", category="raster")
+    with pytest.raises(ValidationError):
+        ToolInput(type="file", category="lidar")

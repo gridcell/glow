@@ -1,5 +1,13 @@
 {
   "$defs": {
+    "Category": {
+      "enum": [
+        "raster",
+        "vector"
+      ],
+      "title": "Category",
+      "type": "string"
+    },
     "Tool": {
       "additionalProperties": false,
       "description": "One tool in a toolpack, or an in-engine built-in such as `fs.group`.\n\nDoubles as an MCP tool definition. Built-ins run inside the engine and\nhave no `command`; a toolpack manifest requires one on every tool.",
@@ -71,6 +79,20 @@
               "type": "boolean"
             }
           ]
+        },
+        "category": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Category"
+            },
+            {
+              "items": {
+                "$ref": "#/$defs/Category"
+              },
+              "type": "array"
+            }
+          ],
+          "description": "Accept every media type of these categories, in addition to media_type."
         },
         "default": {},
         "description": {
