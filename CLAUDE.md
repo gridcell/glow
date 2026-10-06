@@ -80,13 +80,6 @@ GLOW_RUNNER_TESTS=1 uv run pytest tests/runner -m "not integration"   # runner t
 uv run glow toolpack lint toolpacks/*/manifest.yaml   # lint toolpack manifests
 uv run glow toolpack lock --check    # registry.lock.yaml matches the manifests
 uv run glow toolpack lock            # regenerate the lock after a manifest change
-_Add your build and test commands here_
-
-```bash
-# Example:
-# npm install
-# npm test
->>>>>>> be33360 (bd init: initialize beads issue tracking)
 ```
 
 ## Architecture Overview
@@ -104,6 +97,7 @@ _Add your build and test commands here_
 - `src/glow/runner/`: `glow run`. `local.py` (scheduler, fan-out on threads, Argo-style fan-in, run layout), `docker.py` (`docker run` with glow-exec mounted, mount planning), `inputs.py` (`--input` values). See `docs/runner.md`.
 - `images/engine/`, `images/sandbox/`: engine and sandbox Dockerfiles, built by `make images`.
 - `src/glow/types.py`: edge types (`file`, `bundle`, `group`, scalars, arrays), media-type parsing and matching, `is_assignable` (ok / runtime_check / mismatch). Pure: no validator or CLI imports.
+- `src/glow/categories.py`: media type categories (`raster`, `vector`) that a data input can accept with `category:`. The validator matches against the expanded media types; the compiler expands them into `media_type` for glow-exec.
 - `src/glow/cli.py`: typer CLI (`glow validate`, `glow plan`, `glow compile`, `glow run`, `glow builtin`, `glow schema export`, `glow toolpack lint|lock`).
 - `docs/toolpacks.md`: toolpack layout, versioning and tool contract.
 - `examples/`, `toolpacks/`: example workflows and toolpack manifests, all validated by the tests.
@@ -113,8 +107,3 @@ _Add your build and test commands here_
 
 - Models use `extra="forbid"`. Cross-field rules raise `PydanticCustomError` with a type starting with `glow_`.
 - No em-dashes in code or docs.
-_Add a brief overview of your project architecture_
-
-## Conventions & Patterns
-
-_Add your project-specific conventions here_
