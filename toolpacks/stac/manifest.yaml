@@ -45,6 +45,12 @@ tools:
         description: >-
           Extension values keyed by extension name. Supported: `render`, whose
           value becomes the item's `renders` property.
+      stac_extensions:
+        type: array
+        items: { type: string, format: uri }
+        description: >-
+          Extension schema URIs to declare, for extension fields given in
+          `properties`, such as `eo:cloud_cover`.
     required: [id, datetime]
     outputs:
       item: { type: file, path: item.json, media_type: application/geo+json }
@@ -59,7 +65,75 @@ tools:
       collection: { type: string, description: Collection id. }
       items: { type: array, items: { type: file, media_type: application/geo+json } }
       dest: { type: string, format: uri, description: Local path or file:// URI of the catalog root. }
+      title: { type: string, description: Collection title. }
+      description: { type: string, description: Collection description. }
+      license: { type: string, default: proprietary, description: "Collection license: an SPDX id, or proprietary." }
     required: [collection, items, dest]
     outputs:
       published: { type: integer, description: Number of items written. }
     command: [stac_publish_wrapper]
+
+  - name: stac.search
+    description: >-
+      Search a STAC API with POST /search and return the matching items, each
+      reduced to id, collection, datetime, bbox, properties and assets.
+    network: true
+    inputs:
+      api: { type: string, format: uri, default: "https://earth-search.aws.element84.com/v1", description: "STAC API root. https:// only." }
+      collections: { type: array, items: { type: string }, minItems: 1 }
+      bbox:
+        type: array
+        items: { type: number }
+        minItems: 4
+        maxItems: 4
+        description: West, south, east, north in WGS84.
+      datetime: { type: string, description: 'RFC 3339 instant or interval, such as "2026-05-01T00:00:00Z/2026-09-30T23:59:59Z".' }
+      query: { type: object, description: 'Query extension filter, such as {"eo:cloud_cover": {"lt": 10}}.' }
+      assets:
+        type: array
+        items: { type: string }
+        description: Asset keys to keep. Every item must have them. Default all.
+      max_items: { type: integer, minimum: 1, default: 100, description: Stop after this many items. }
+    required: [collections]
+    outputs:
+      items:
+        type: array
+        description: Matching items, reduced to the fields below.
+        items:
+          type: object
+          properties:
+            id: { type: string }
+            collection: { type: string }
+            datetime: { type: string, format: date-time }
+            bbox: { type: array, items: { type: number } }
+            properties: { type: object, description: The item properties as the API returns them. }
+            assets:
+              type: object
+              description: Asset key to {href, type, roles, title}.
+              additionalProperties:
+                type: object
+                properties:
+                  href: { type: string, format: uri }
+                  type: { type: string }
+                  roles: { type: array, items: { type: string } }
+                  title: { type: string }
+          required: [id, datetime, properties, assets]
+      count: { type: integer, description: Number of items returned. }
+    command: [stac_search_wrapper]
+
+  - name: stac.download
+    description: Download one asset, such as a STAC asset href, over HTTPS.
+    network: true
+    inputs:
+      href: { type: string, format: uri, description: https:// URL of the asset. }
+      format: { type: string, enum: [GTiff, JP2], default: GTiff, description: Format of the asset. }
+    required: [href]
+    outputs:
+      result:
+        type: file
+        path: asset.{ext}
+        media_type_from: format
+        media_types:
+          GTiff: "image/tiff; application=geotiff"
+          JP2: image/jp2
+    command: [stac_download_wrapper]

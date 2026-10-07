@@ -411,7 +411,7 @@ class _Runner:
             work_dir=work,
             environment=environment,
             mounts=self.mounts,
-            network=self.network,
+            network=self.network or bool(spec_json.get("network")),
             pass_through=S3_ENVIRONMENT if self.network else (),
             flags=flags,
         )

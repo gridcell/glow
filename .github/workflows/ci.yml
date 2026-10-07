@@ -41,10 +41,12 @@ jobs:
         run: |
           uv run glow plan examples/sst-ingest.yaml
           uv run glow plan examples/minimal-if-script.yaml
+          uv run glow plan examples/sentinel2-vancouver-island.yaml
       - name: Compile the examples
         run: |
           uv run glow compile examples/sst-ingest.yaml --allow-local-images -o "$RUNNER_TEMP/sst-ingest.yaml"
           uv run glow compile examples/minimal-if-script.yaml --allow-local-images -o "$RUNNER_TEMP/minimal-if-script.yaml"
+          uv run glow compile examples/sentinel2-vancouver-island.yaml --allow-local-images -o "$RUNNER_TEMP/sentinel2-vancouver-island.yaml"
       - name: Install the argo CLI
         env:
           ARGO_VERSION: v4.1.4

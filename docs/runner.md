@@ -104,7 +104,8 @@ A path that contains `,` or `:`, or that would hide a system directory such
 as `/usr` or `/work`, is refused.
 
 Containers have no network unless the run prefix or an input is an `s3://`
-URI. Then glow-exec gets `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+URI, or the step's tool sets `network: true` in its manifest, as
+`stac.search` and `stac.download` do. With an `s3://` URI, glow-exec gets `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
 `AWS_SESSION_TOKEN`, `AWS_REGION`, `AWS_DEFAULT_REGION`, `AWS_ENDPOINT_URL`,
 `AWS_ENDPOINT_URL_S3` and `GLOW_S3_PATH_STYLE` from your environment. The
 values do not appear on the docker command line. Profiles in `~/.aws/` are

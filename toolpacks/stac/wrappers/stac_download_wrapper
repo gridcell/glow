@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""stac.download: download one asset over HTTPS.
+
+Writes /work/out/asset.<ext>, where the extension follows `format`. The
+download goes to a temporary file first, so a failed download leaves no
+output. A failed request is tried again, up to ATTEMPTS times. See
+docs/toolpacks.md for the tool contract.
+"""
+
+import http.client
+import json
+import os
+import shutil
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+from typing import NoReturn
+
+WORK = Path(os.environ.get("GLOW_WORK_DIR", "/work"))
+EXTENSIONS = {"GTiff": "tif", "JP2": "jp2"}
+TIMEOUT = 60
+ATTEMPTS = 3
+CHUNK = 1 << 20
+
+
+def fail(message: str) -> NoReturn:
+    sys.exit(f"stac.download: {message}")
+
+
+def download(href: str, target: Path) -> None:
+    partial = target.with_name(target.name + ".part")
+    for attempt in range(1, ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(href, timeout=TIMEOUT) as response:
+                if not response.geturl().startswith("https://"):
+                    fail(f"{href} redirected to {response.geturl()}, which is not https://")
+                with partial.open("wb") as out:
+                    shutil.copyfileobj(response, out, CHUNK)
+            partial.replace(target)
+            return
+        except urllib.error.HTTPError as exc:
+            error, retry = f"{href} returned HTTP {exc.code}", exc.code >= 500
+        except (urllib.error.URLError, http.client.HTTPException, OSError) as exc:
+            error, retry = f"cannot download {href}: {exc}", True
+        partial.unlink(missing_ok=True)
+        if not retry or attempt == ATTEMPTS:
+            fail(error)
+        time.sleep(2**attempt)
+
+
+def main() -> None:
+    inputs = json.loads((WORK / "inputs.json").read_text())
+    href = inputs["href"]
+    if not isinstance(href, str) or not href.startswith("https://"):
+        fail(f"href {href!r} is not an https:// URL")
+    fmt = inputs.get("format", "GTiff")
+    if fmt not in EXTENSIONS:
+        fail(f"unsupported format {fmt!r}")
+    out_dir = WORK / "out"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    download(href, out_dir / f"asset.{EXTENSIONS[fmt]}")
+
+
+if __name__ == "__main__":
+    main()

@@ -74,6 +74,9 @@ The JSON Schema is `src/glow/schemas/toolpack.schema.json`. The main rules:
 - `path` is a fixed path relative to `/work/out/`. It can contain `{ext}`.
   Absolute paths and `..` are not allowed.
 - Every tool sets `command`.
+- A tool that needs the internet, for example to call an HTTP API, sets
+  `network: true`. The local runner gives the containers of other tools no
+  network. In a cluster, the pod network policy applies.
 
 ### Media type categories
 
@@ -188,12 +191,13 @@ Dockerfile. Images run as the non-root user `glow`.
 | Image | Base | Tools |
 | --- | --- | --- |
 | `glow-gdal` | `ghcr.io/osgeo/gdal:ubuntu-full`, pinned by digest. `ubuntu-small` has no netCDF driver. | `gdal.translate`, `gdal.dem.color_relief`, `gdal.info` |
-| `glow-stac` | `python:3.12-slim`, pinned by digest, with pystac and rasterio | `stac.item`, `stac.publish`, `prescient.render_from_color_table` |
+| `glow-stac` | `python:3.12-slim`, pinned by digest, with pystac and rasterio | `stac.item`, `stac.publish`, `stac.search`, `stac.download`, `prescient.render_from_color_table` |
 
 Tool behavior that the manifests do not show:
 
 - `gdal.translate` reads `subdataset` as `NETCDF:"<source>":<subdataset>`.
-  Each `creation_options` entry becomes `-co KEY=VALUE`.
+  Each `creation_options` entry becomes `-co KEY=VALUE`. `size` becomes
+  `-outsize` with `-r average`; a 0 keeps the aspect ratio.
 - `gdal.dem.color_relief` runs `gdaldem color-relief -alpha`, then
   `gdal_translate` to `format`. `size` becomes `-outsize`; a 0 keeps the
   aspect ratio.
@@ -203,12 +207,27 @@ Tool behavior that the manifests do not show:
   file, whose media type becomes the asset `type`. The bbox and geometry
   come from the first asset that is a local georeferenced raster. The tool
   has no storage credentials, so an `s3://` href gives no footprint.
-  `extensions.render` becomes the `renders` property.
+  `extensions.render` becomes the `renders` property. `stac_extensions`
+  declares more extension schemas, for fields in `properties` such as
+  `eo:cloud_cover`.
 - `stac.publish` writes each item to `<dest>/<collection>/<item-id>.json`
-  and replaces an older copy. Then it rebuilds
-  `<dest>/<collection>/items.json`, a GeoJSON FeatureCollection of all items
-  in that directory. `dest` and the items must be local paths or `file://`
-  URIs. S3 and pgSTAC destinations are not supported yet.
+  and replaces an older copy. It sets the item's `collection` and adds
+  `root`, `parent` and `collection` links to `./collection.json`. Then it
+  rebuilds `<dest>/<collection>/items.json`, a GeoJSON FeatureCollection of
+  all items in that directory, and `<dest>/<collection>/collection.json`, a
+  STAC 1.0 collection with `title`, `description` and `license`, an extent
+  that covers all the items, and an `item` link to each one. `dest` and the
+  items must be local paths or `file://` URIs. S3 and pgSTAC destinations
+  are not supported yet.
+- `stac.search` sends `POST <api>/search` with `collections`, `bbox`,
+  `datetime` and `query`, and follows POST `next` links until it has
+  `max_items` items. Each item is reduced to `id`, `collection`, `datetime`,
+  `bbox`, `properties` and `assets`, and each asset to `href`, `type`,
+  `roles` and `title`. With `assets`, it keeps only those asset keys and
+  fails when an item does not have one. Only `https://` URLs are allowed.
+- `stac.download` downloads an `https://` URL to `asset.<ext>`. It refuses a
+  redirect to a URL that is not `https://`. It tries a connection error or
+  an HTTP 5xx status three times, and leaves no output when it fails.
 - `prescient.render_from_color_table` reads a gdaldem color table. The
   render rescales the table's value range onto 0..255 and has a 256-entry
   `colormap` interpolated between rows. Rows with value `nv` are skipped;

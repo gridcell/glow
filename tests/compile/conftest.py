@@ -28,6 +28,7 @@ OPTIONS = CompileOptions(
 COMPILED = {
     "sst-ingest": EXAMPLES / "sst-ingest.yaml",
     "minimal-if-script": EXAMPLES / "minimal-if-script.yaml",
+    "sentinel2-vancouver-island": EXAMPLES / "sentinel2-vancouver-island.yaml",
     "for-each-step": FIXTURES / "for-each-step.yaml",
     "secrets": FIXTURES / "secrets.yaml",
     "resources": FIXTURES / "resources.yaml",

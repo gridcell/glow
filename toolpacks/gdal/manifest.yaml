@@ -14,6 +14,12 @@ tools:
       subdataset: { type: string, description: 'netCDF variable, read as NETCDF:"<source>":<subdataset>.' }
       format: { type: string, enum: [COG, GTiff, PNG], default: COG }
       creation_options: { type: object, additionalProperties: { type: string } }
+      size:
+        type: array
+        items: { type: integer, minimum: 0 }
+        minItems: 2
+        maxItems: 2
+        description: Output width and height in pixels. A 0 on one axis keeps the aspect ratio.
     required: [source]
     outputs:
       result:

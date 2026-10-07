@@ -111,6 +111,20 @@ def test_parameters_match_the_compiled_contract(workflow: ir.Workflow, tmp_path:
     assert sorted(conditions) == ["", "", "inputs.extra"]
 
 
+def test_only_network_tools_get_the_network(workflow: ir.Workflow, tmp_path: Path) -> None:
+    steps = [
+        step.model_copy(update={"tool_spec": {**step.tool_spec, "network": True}})
+        if step.id == "copy" and step.tool_spec is not None
+        else step
+        for step in workflow.steps
+    ]
+    executor = FakeGlowExec()
+    run(workflow.model_copy(update={"steps": steps}), tmp_path, executor, ["alice", "bob"])
+    assert sorted(spec.tool for spec in executor.calls if spec.network) == ["fake.copy@1"] * 2
+    # A network tool gets no storage credentials without an s3:// URI.
+    assert all(not spec.pass_through for spec in executor.calls)
+
+
 def _upstream(environment: dict[str, str]) -> list[str]:
     return [key.removeprefix("GLOW_UPSTREAM_") for key in environment if "UPSTREAM" in key]
 

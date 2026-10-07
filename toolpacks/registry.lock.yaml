@@ -5,34 +5,46 @@ tools:
     manifest: gdal/manifest.yaml
     image: local/gdal:dev
     digest: null
-    manifest_sha256: 2da7bb3e2ad4016ad213e8711aedbbc11fe7b1677627311e5c3801ffa9f540e1
+    manifest_sha256: 07dd48bbe74ade78823a133ea4cc1468c4daa43b5fb1fae0d3fbb27b3b9d421b
   gdal.info@1:
     toolpack: gdal
     manifest: gdal/manifest.yaml
     image: local/gdal:dev
     digest: null
-    manifest_sha256: 2da7bb3e2ad4016ad213e8711aedbbc11fe7b1677627311e5c3801ffa9f540e1
+    manifest_sha256: 07dd48bbe74ade78823a133ea4cc1468c4daa43b5fb1fae0d3fbb27b3b9d421b
   gdal.translate@1:
     toolpack: gdal
     manifest: gdal/manifest.yaml
     image: local/gdal:dev
     digest: null
-    manifest_sha256: 2da7bb3e2ad4016ad213e8711aedbbc11fe7b1677627311e5c3801ffa9f540e1
+    manifest_sha256: 07dd48bbe74ade78823a133ea4cc1468c4daa43b5fb1fae0d3fbb27b3b9d421b
   prescient.render_from_color_table@1:
     toolpack: prescient
     manifest: prescient/manifest.yaml
     image: local/prescient:dev
     digest: null
     manifest_sha256: 0a081b7b75b44670db6f142df308f9f3191dbd6a9273e6a74702e78eb2acda06
+  stac.download@1:
+    toolpack: stac
+    manifest: stac/manifest.yaml
+    image: local/stac:dev
+    digest: null
+    manifest_sha256: 01ed76afab956745de402d13483c241f61033940ced51b08c54e5bc737fd7359
   stac.item@1:
     toolpack: stac
     manifest: stac/manifest.yaml
     image: local/stac:dev
     digest: null
-    manifest_sha256: 9f1e4d40a9a7769988d7f5d131a8896fd49f99c470602a9b2ee458eecea88e1d
+    manifest_sha256: 01ed76afab956745de402d13483c241f61033940ced51b08c54e5bc737fd7359
   stac.publish@1:
     toolpack: stac
     manifest: stac/manifest.yaml
     image: local/stac:dev
     digest: null
-    manifest_sha256: 9f1e4d40a9a7769988d7f5d131a8896fd49f99c470602a9b2ee458eecea88e1d
+    manifest_sha256: 01ed76afab956745de402d13483c241f61033940ced51b08c54e5bc737fd7359
+  stac.search@1:
+    toolpack: stac
+    manifest: stac/manifest.yaml
+    image: local/stac:dev
+    digest: null
+    manifest_sha256: 01ed76afab956745de402d13483c241f61033940ced51b08c54e5bc737fd7359

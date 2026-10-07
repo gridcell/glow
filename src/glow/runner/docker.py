@@ -10,7 +10,7 @@ Parameter values never appear on the docker command line: each `-e NAME`
 takes its value from the environment of the docker process, so large values
 avoid the argument length limit and stay out of the process list. AWS
 credentials reach glow-exec the same way, and only when an `s3://` URI is in
-play; otherwise the container has no network.
+play. The container has network only then, or when its tool sets `network`.
 """
 
 import os

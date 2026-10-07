@@ -26,8 +26,10 @@ def test_lock_keys_cover_every_tool() -> None:
         "gdal.info@1",
         "gdal.translate@1",
         "prescient.render_from_color_table@1",
+        "stac.download@1",
         "stac.item@1",
         "stac.publish@1",
+        "stac.search@1",
     ]
 
 

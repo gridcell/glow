@@ -7,7 +7,9 @@ from tests.conftest import TOOLPACKS
 from tests.validate.conftest import EXAMPLES, FIXTURES, Check
 
 
-@pytest.mark.parametrize("name", ["sst-ingest.yaml", "minimal-if-script.yaml"])
+@pytest.mark.parametrize(
+    "name", ["sst-ingest.yaml", "minimal-if-script.yaml", "sentinel2-vancouver-island.yaml"]
+)
 def test_examples_are_valid(name: str) -> None:
     report = validate(EXAMPLES / name, TOOLPACKS)
     assert report.ok, report.messages()

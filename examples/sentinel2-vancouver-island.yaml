@@ -1,0 +1,86 @@
+# Sentinel-2 L2A over Vancouver Island, May 1 to September 30, 2026.
+#
+# Searches Earth Search (https://earth-search.aws.element84.com/v1) for
+# scenes with little cloud, downloads the true color image (`visual`) of each
+# scene, converts it to a cloud-optimized GeoTIFF, makes a PNG thumbnail and
+# builds a STAC item. `publish` writes the items and a STAC collection under
+# `dest`. The search and download steps need the internet. An image is up to
+# 250 MB, so set `max_items` low for a test run.
+name: sentinel2-vancouver-island
+inputs:
+  dest: { type: uri, description: "Catalog root, a local directory." }
+  collection: { type: string, default: sentinel-2-l2a-vancouver-island }
+  bbox: { type: array, default: [-128.5, 48.3, -123.2, 50.9], description: "West, south, east, north." }
+  datetime: { type: string, default: "2026-05-01T00:00:00Z/2026-09-30T23:59:59Z" }
+  max_cloud_cover: { type: number, default: 10, description: Percent. }
+  max_items: { type: integer, default: 400 }
+steps:
+  - id: search
+    uses: stac.search@1
+    with:
+      collections: [sentinel-2-l2a]
+      bbox: ${{ inputs.bbox }}
+      datetime: ${{ inputs.datetime }}
+      query:
+        eo:cloud_cover:
+          lt: ${{ inputs.max_cloud_cover }}
+      assets: [visual]
+      max_items: ${{ inputs.max_items }}
+  - id: per_scene
+    for_each: ${{ steps.search.outputs.items }}
+    as: scene
+    max_parallelism: 4
+    steps:
+      - id: download
+        uses: stac.download@1
+        with:
+          href: ${{ scene.assets.visual.href }}
+        timeout: 30m
+        retries: 2
+      - id: cog
+        uses: gdal.translate@1
+        with:
+          source: ${{ steps.download.outputs.result }}
+          format: COG
+          creation_options: { COMPRESS: DEFLATE, PREDICTOR: "2" }
+      - id: thumb
+        uses: gdal.translate@1
+        with:
+          source: ${{ steps.cog.outputs.result }}
+          format: PNG
+          size: [512, 0]
+      - id: item
+        uses: stac.item@1
+        with:
+          id: ${{ scene.id }}
+          datetime: ${{ scene.datetime }}
+          assets:
+            visual:
+              href: ${{ steps.cog.outputs.result }}
+              roles: [data, visual]
+              title: True color image
+            thumbnail:
+              href: ${{ steps.thumb.outputs.result }}
+              roles: [thumbnail]
+              title: Thumbnail
+          properties:
+            platform: ${{ scene.properties.platform }}
+            constellation: sentinel-2
+            instruments: [msi]
+            eo:cloud_cover: ${{ scene.properties["eo:cloud_cover"] }}
+          stac_extensions: ["https://stac-extensions.github.io/eo/v1.1.0/schema.json"]
+    outputs:
+      item: ${{ steps.item.outputs.item }}
+  - id: publish
+    uses: stac.publish@1
+    with:
+      collection: ${{ inputs.collection }}
+      items: ${{ steps.per_scene.outputs.item }}
+      dest: ${{ inputs.dest }}
+      title: Sentinel-2 L2A, Vancouver Island, May to September 2026
+      description: >-
+        Sentinel-2 L2A true color images of Vancouver Island from May 1 to
+        September 30, 2026, as cloud-optimized GeoTIFFs with PNG thumbnails.
+        Source: Earth Search sentinel-2-l2a. Contains modified Copernicus
+        Sentinel data 2026.
+      license: proprietary

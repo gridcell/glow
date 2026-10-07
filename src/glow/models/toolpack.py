@@ -149,6 +149,13 @@ class Tool(StrictModel):
     command: (
         Annotated[list[Annotated[str, StringConstraints(min_length=1)]], Field(min_length=1)] | None
     ) = None
+    network: bool | None = Field(
+        default=None,
+        description=(
+            "The tool needs outbound network access, for example to call an HTTP API. "
+            "The local runner gives other tool containers no network."
+        ),
+    )
 
     @model_validator(mode="after")
     def _check(self) -> "Tool":

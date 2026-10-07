@@ -39,6 +39,10 @@
           "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
           "type": "string"
         },
+        "network": {
+          "description": "The tool needs outbound network access, for example to call an HTTP API. The local runner gives other tool containers no network.",
+          "type": "boolean"
+        },
         "outputs": {
           "additionalProperties": {
             "$ref": "#/$defs/ToolOutput"

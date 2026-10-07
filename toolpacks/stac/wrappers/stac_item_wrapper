@@ -6,7 +6,8 @@ a `key` each and wins over `assets` on a shared key. An asset `href` is a URI
 or a resolved file `{uri, media_type}`. The bbox and geometry come from the
 first asset that opens as a georeferenced raster, trying assets with the
 data role first. Only local paths are opened, because the tool has no
-storage credentials. Writes /work/out/item.json. See docs/toolpacks.md.
+storage credentials. `stac_extensions` adds schema URIs for extension fields
+in `properties`. Writes /work/out/item.json. See docs/toolpacks.md.
 """
 
 import json
@@ -118,6 +119,11 @@ def main() -> None:
     for key, asset in assets.items():
         item.add_asset(key, asset)
     apply_extensions(item, inputs.get("extensions") or {})
+    for schema in inputs.get("stac_extensions") or []:
+        if not isinstance(schema, str) or not schema.startswith("https://"):
+            fail(f"stac_extensions entry {schema!r} is not an https:// schema URI")
+        if schema not in item.stac_extensions:
+            item.stac_extensions.append(schema)
     out_dir = WORK / "out"
     out_dir.mkdir(parents=True, exist_ok=True)
     document = item.to_dict(include_self_link=False, transform_hrefs=False)

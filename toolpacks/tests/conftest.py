@@ -128,6 +128,34 @@ def run_tool(docker: str, work: Path) -> RunTool:
     return run
 
 
+RunHttpTool = Callable[[str, dict[str, Any], list[Any]], tuple[ToolRun, list[dict[str, Any]]]]
+
+
+@pytest.fixture
+def run_http_tool(docker: str, work: Path) -> RunHttpTool:
+    """Run a stac image wrapper with canned HTTP responses (see fake_http.py).
+
+    Returns the run and the HTTP calls the wrapper made.
+    """
+
+    def run(command: str, inputs: dict[str, Any], responses: list[Any]) -> tuple[ToolRun, Any]:
+        (work / "inputs.json").write_text(json.dumps(inputs))
+        (work / "responses.json").write_text(json.dumps(responses))
+        shutil.copy(HERE / "fake_http.py", work / "fake_http.py")
+        driver = [
+            "python3",
+            "/work/fake_http.py",
+            f"/usr/local/bin/{command}",
+            "/work/responses.json",
+            "/work/calls.json",
+        ]
+        result = run_in_image(docker, STAC_IMAGE, work, driver)
+        calls = json.loads((work / "calls.json").read_text())
+        return ToolRun(work, result), calls
+
+    return run
+
+
 @pytest.fixture
 def gdalinfo(docker: str, work: Path) -> GdalInfo:
     """`gdalinfo -json` of a path in the work directory, run in the gdal image."""

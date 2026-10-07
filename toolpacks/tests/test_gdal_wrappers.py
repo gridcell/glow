@@ -41,6 +41,19 @@ def test_translate_png_extension(run_tool: RunTool) -> None:
     assert (run.check().out / "out.png").is_file()
 
 
+def test_translate_png_thumbnail_keeps_aspect_ratio(run_tool: RunTool) -> None:
+    inputs = {"source": GEOTIFF, "format": "PNG", "size": [40, 0]}
+    run = run_tool(GDAL_IMAGE, "gdal_translate_wrapper", inputs).check()
+    assert sorted(path.name for path in run.out.iterdir()) == ["out.png"]
+    assert png_size(run.out / "out.png") == (40, 20)
+
+
+def test_translate_rejects_zero_size(run_tool: RunTool) -> None:
+    run = run_tool(GDAL_IMAGE, "gdal_translate_wrapper", {"source": GEOTIFF, "size": [0, 0]})
+    assert run.result.returncode != 0
+    assert "invalid size" in run.result.stderr
+
+
 def test_translate_rejects_quoted_subdataset(run_tool: RunTool) -> None:
     inputs = {"source": NETCDF, "subdataset": 'x":/etc/passwd'}
     run = run_tool(GDAL_IMAGE, "gdal_translate_wrapper", inputs)

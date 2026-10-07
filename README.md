@@ -205,12 +205,13 @@ collection to `./out`.
    run sst-ingest-20261007t161609-f4f01a succeeded; outputs under /home/you/glow_v2/.glow/runs/sst-ingest-20261007t161609-f4f01a
    ```
 
-The `publish` step writes the collection to `./out`, one STAC item per date
-and a feature collection of all items:
+The `publish` step writes the collection to `./out`: a STAC collection, one
+STAC item per date and a feature collection of all items:
 
 ```text
 out/
 └── noaa-sst/
+    ├── collection.json     STAC collection, with the extent of its items
     ├── items.json          FeatureCollection with both items
     ├── sst-20240101.json
     └── sst-20240102.json
@@ -224,6 +225,7 @@ and the render extension from the color table (`colormap` shortened here):
   "type": "Feature",
   "stac_version": "1.0.0",
   "id": "sst-20240101",
+  "collection": "noaa-sst",
   "properties": {
     "datetime": "2024-01-01T00:00:00Z",
     "renders": {
@@ -266,6 +268,45 @@ The run directory keeps every step's files, log and
     │   │   └── item/{log.txt, outputs.resolved.json, item/item.json}
     │   └── 20240102/...
     └── publish/{log.txt, outputs.resolved.json}
+```
+
+### Example: Sentinel-2 over Vancouver Island
+
+`examples/sentinel2-vancouver-island.yaml` downloads Sentinel-2 L2A data for
+Vancouver Island from May 1 to September 30, 2026, and makes a STAC
+collection from it:
+
+1. `search` (`stac.search`) finds the scenes in
+   [Earth Search](https://earth-search.aws.element84.com/v1) with less than
+   `max_cloud_cover` percent cloud.
+2. For each scene, `download` (`stac.download`) gets the true color image
+   (the `visual` asset), `cog` converts it to a cloud-optimized GeoTIFF,
+   `thumb` makes a 512 pixel wide PNG thumbnail, and `item` builds a STAC
+   item.
+3. `publish` writes the items and `collection.json` under `dest`.
+
+The search and download steps need the internet. Their tools set
+`network: true`, so the runner gives only their containers a network.
+
+```bash
+make images
+uv run glow run examples/sentinel2-vancouver-island.yaml \
+  --input dest=./out \
+  --input max_items=2
+```
+
+Every input except `dest` has a default: `bbox`, `datetime`,
+`max_cloud_cover` (10), `max_items` (400) and `collection`. With the
+defaults, the search finds more than 300 scenes. Each image is 15 to 250 MB,
+and the COG is about the same size, so a full run needs tens of GB of disk.
+Use `max_items` for a test run.
+
+```text
+out/
+└── sentinel-2-l2a-vancouver-island/
+    ├── collection.json
+    ├── items.json
+    └── S2B_9UXP_20260927_0_L2A.json   one item per scene: visual (COG) and thumbnail (PNG) assets
 ```
 
 ### Toolpacks

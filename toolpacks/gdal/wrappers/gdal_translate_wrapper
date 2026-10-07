@@ -48,6 +48,16 @@ def creation_flags(options: dict[str, str]) -> list[str]:
     return flags
 
 
+def size_flags(size: list[int] | None) -> list[str]:
+    """`-outsize`, with average resampling so thumbnails are not aliased."""
+    if size is None:
+        return []
+    valid = len(size) == 2 and all(isinstance(n, int) and n >= 0 for n in size)
+    if not valid or size == [0, 0]:
+        sys.exit(f"gdal.translate: invalid size {size!r}")
+    return ["-outsize", str(size[0]), str(size[1]), "-r", "average"]
+
+
 def main() -> None:
     inputs = json.loads((WORK / "inputs.json").read_text())
     fmt = inputs.get("format", "COG")
@@ -61,6 +71,7 @@ def main() -> None:
         "-of",
         fmt,
         *creation_flags(inputs.get("creation_options") or {}),
+        *size_flags(inputs.get("size")),
         source_name(inputs["source"], inputs.get("subdataset")),
         str(out_dir / f"out.{EXTENSIONS[fmt]}"),
     ]

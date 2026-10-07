@@ -22,6 +22,7 @@ def validate(path: Path) -> tuple[int, str, str]:
     [
         ("examples/sst-ingest.yaml", "workflow"),
         ("examples/minimal-if-script.yaml", "workflow"),
+        ("examples/sentinel2-vancouver-island.yaml", "workflow"),
         ("toolpacks/gdal/manifest.yaml", "toolpack"),
         ("toolpacks/stac/manifest.yaml", "toolpack"),
         ("toolpacks/prescient/manifest.yaml", "toolpack"),

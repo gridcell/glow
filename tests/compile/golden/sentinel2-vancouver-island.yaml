@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
-  generateName: sst-ingest-
+  generateName: sentinel2-vancouver-island-
   namespace: tenant-acme
 spec:
   entrypoint: main
@@ -10,102 +10,121 @@ spec:
   - name: main
     dag:
       tasks:
-      - name: items
-        template: builtin-fs-group
+      - name: search
+        template: tool-stac-search
         arguments:
           parameters:
           - name: raw-with
-            value: eyJyb290IjoiJHt7IGlucHV0cy5zb3VyY2UgfX0iLCJwYXR0ZXJuIjoic3N0Xyg/UDxkYXRlPlxcZHs4fSlcXC5uYyQiLCJrZXkiOiJkYXRlIiwibWVkaWFfdHlwZSI6ImFwcGxpY2F0aW9uL3gtbmV0Y2RmIn0=
+            value: eyJjb2xsZWN0aW9ucyI6WyJzZW50aW5lbC0yLWwyYSJdLCJiYm94IjoiJHt7IGlucHV0cy5iYm94IH19IiwiZGF0ZXRpbWUiOiIke3sgaW5wdXRzLmRhdGV0aW1lIH19IiwicXVlcnkiOnsiZW86Y2xvdWRfY292ZXIiOnsibHQiOiIke3sgaW5wdXRzLm1heF9jbG91ZF9jb3ZlciB9fSJ9fSwiYXNzZXRzIjpbInZpc3VhbCJdLCJtYXhfaXRlbXMiOiIke3sgaW5wdXRzLm1heF9pdGVtcyB9fSJ9
           - name: scope
-            value: '{"inputs":{"source":{{workflow.parameters.source}},"dest":{{workflow.parameters.dest}},"collection":{{workflow.parameters.collection}},"color_table":{{workflow.parameters.color_table}}}}'
+            value: '{"inputs":{"dest":{{workflow.parameters.dest}},"collection":{{workflow.parameters.collection}},"bbox":{{workflow.parameters.bbox}},"datetime":{{workflow.parameters.datetime}},"max_cloud_cover":{{workflow.parameters.max_cloud_cover}},"max_items":{{workflow.parameters.max_items}}}}'
           - name: run-prefix
-            value: s3://artifact-bucket-acme/runs/{{workflow.uid}}/steps/items
-      - name: per-item
-        depends: items
-        template: per-item-block
-        withParam: '{{tasks.items.outputs.parameters.groups}}'
+            value: s3://artifact-bucket-acme/runs/{{workflow.uid}}/steps/search
+      - name: per-scene
+        depends: search
+        template: per-scene-fanout
         arguments:
           parameters:
-          - name: run-prefix
-            value: s3://artifact-bucket-acme/runs/{{workflow.uid}}/steps/per-item/{{item.key}}
-          - name: loop-per-item
-            value: '{{item}}'
+          - name: task-search-items
+            value: '{{tasks.search.outputs.parameters.items}}'
       - name: publish
-        depends: per-item
+        depends: per-scene
         template: tool-stac-publish
         arguments:
           parameters:
           - name: raw-with
-            value: eyJjb2xsZWN0aW9uIjoiJHt7IGlucHV0cy5jb2xsZWN0aW9uIH19IiwiaXRlbXMiOiIke3sgc3RlcHMucGVyX2l0ZW0ub3V0cHV0cy5pdGVtIH19IiwiZGVzdCI6IiR7eyBpbnB1dHMuZGVzdCB9fSJ9
+            value: eyJjb2xsZWN0aW9uIjoiJHt7IGlucHV0cy5jb2xsZWN0aW9uIH19IiwiaXRlbXMiOiIke3sgc3RlcHMucGVyX3NjZW5lLm91dHB1dHMuaXRlbSB9fSIsImRlc3QiOiIke3sgaW5wdXRzLmRlc3QgfX0iLCJ0aXRsZSI6IlNlbnRpbmVsLTIgTDJBLCBWYW5jb3V2ZXIgSXNsYW5kLCBNYXkgdG8gU2VwdGVtYmVyIDIwMjYiLCJkZXNjcmlwdGlvbiI6IlNlbnRpbmVsLTIgTDJBIHRydWUgY29sb3IgaW1hZ2VzIG9mIFZhbmNvdXZlciBJc2xhbmQgZnJvbSBNYXkgMSB0byBTZXB0ZW1iZXIgMzAsIDIwMjYsIGFzIGNsb3VkLW9wdGltaXplZCBHZW9USUZGcyB3aXRoIFBORyB0aHVtYm5haWxzLiBTb3VyY2U6IEVhcnRoIFNlYXJjaCBzZW50aW5lbC0yLWwyYS4gQ29udGFpbnMgbW9kaWZpZWQgQ29wZXJuaWN1cyBTZW50aW5lbCBkYXRhIDIwMjYuIiwibGljZW5zZSI6InByb3ByaWV0YXJ5In0=
           - name: scope
-            value: '{"inputs":{"source":{{workflow.parameters.source}},"dest":{{workflow.parameters.dest}},"collection":{{workflow.parameters.collection}},"color_table":{{workflow.parameters.color_table}}}}'
+            value: '{"inputs":{"dest":{{workflow.parameters.dest}},"collection":{{workflow.parameters.collection}},"bbox":{{workflow.parameters.bbox}},"datetime":{{workflow.parameters.datetime}},"max_cloud_cover":{{workflow.parameters.max_cloud_cover}},"max_items":{{workflow.parameters.max_items}}}}'
           - name: run-prefix
             value: s3://artifact-bucket-acme/runs/{{workflow.uid}}/steps/publish
-          - name: upstream-per-item
-            value: '{"outputs":{"item":{{tasks.per-item.outputs.parameters.item}}},"skipped":false}'
-  - name: per-item-block
+          - name: upstream-per-scene
+            value: '{"outputs":{"item":{{tasks.per-scene.outputs.parameters.item}}},"skipped":false}'
+  - name: per-scene-fanout
+    parallelism: 4
     dag:
       tasks:
+      - name: per-scene
+        template: per-scene-block
+        withParam: '{{inputs.parameters.task-search-items}}'
+        arguments:
+          parameters:
+          - name: run-prefix
+            value: s3://artifact-bucket-acme/runs/{{workflow.uid}}/steps/per-scene/{{item}}
+          - name: loop-per-scene
+            value: '{{item}}'
+    inputs:
+      parameters:
+      - name: task-search-items
+    outputs:
+      parameters:
+      - name: item
+        valueFrom:
+          parameter: '{{tasks.per-scene.outputs.parameters.item}}'
+  - name: per-scene-block
+    dag:
+      tasks:
+      - name: download
+        template: tool-stac-download
+        arguments:
+          parameters:
+          - name: raw-with
+            value: eyJocmVmIjoiJHt7IHNjZW5lLmFzc2V0cy52aXN1YWwuaHJlZiB9fSJ9
+          - name: scope
+            value: '{"inputs":{"dest":{{workflow.parameters.dest}},"collection":{{workflow.parameters.collection}},"bbox":{{workflow.parameters.bbox}},"datetime":{{workflow.parameters.datetime}},"max_cloud_cover":{{workflow.parameters.max_cloud_cover}},"max_items":{{workflow.parameters.max_items}}},"scene":{{inputs.parameters.loop-per-scene}}}'
+          - name: run-prefix
+            value: '{{inputs.parameters.run-prefix}}/download'
       - name: cog
+        depends: download
         template: tool-gdal-translate
         arguments:
           parameters:
           - name: raw-with
-            value: eyJzb3VyY2UiOiIke3sgZy5maWxlc1swXS5wYXRoIH19Iiwic3ViZGF0YXNldCI6InNlYV9zdXJmYWNlX3RlbXBlcmF0dXJlIiwiZm9ybWF0IjoiQ09HIiwiY3JlYXRpb25fb3B0aW9ucyI6eyJDT01QUkVTUyI6IkRFRkxBVEUiLCJQUkVESUNUT1IiOiIyIn19
+            value: eyJzb3VyY2UiOiIke3sgc3RlcHMuZG93bmxvYWQub3V0cHV0cy5yZXN1bHQgfX0iLCJmb3JtYXQiOiJDT0ciLCJjcmVhdGlvbl9vcHRpb25zIjp7IkNPTVBSRVNTIjoiREVGTEFURSIsIlBSRURJQ1RPUiI6IjIifX0=
           - name: scope
-            value: '{"inputs":{"source":{{workflow.parameters.source}},"dest":{{workflow.parameters.dest}},"collection":{{workflow.parameters.collection}},"color_table":{{workflow.parameters.color_table}}},"g":{{inputs.parameters.loop-per-item}}}'
+            value: '{"inputs":{"dest":{{workflow.parameters.dest}},"collection":{{workflow.parameters.collection}},"bbox":{{workflow.parameters.bbox}},"datetime":{{workflow.parameters.datetime}},"max_cloud_cover":{{workflow.parameters.max_cloud_cover}},"max_items":{{workflow.parameters.max_items}}}}'
           - name: run-prefix
             value: '{{inputs.parameters.run-prefix}}/cog'
+          - name: upstream-download
+            value: '{{tasks.download.outputs.parameters.outputs}}'
       - name: thumb
         depends: cog
-        template: tool-gdal-dem-color-relief
+        template: tool-gdal-translate-thumb
         arguments:
           parameters:
           - name: raw-with
-            value: eyJzb3VyY2UiOiIke3sgc3RlcHMuY29nLm91dHB1dHMucmVzdWx0IH19IiwiY29sb3JfdGFibGUiOiIke3sgaW5wdXRzLmNvbG9yX3RhYmxlIH19Iiwic2l6ZSI6WzYwMCwwXSwiZm9ybWF0IjoiUE5HIn0=
+            value: eyJzb3VyY2UiOiIke3sgc3RlcHMuY29nLm91dHB1dHMucmVzdWx0IH19IiwiZm9ybWF0IjoiUE5HIiwic2l6ZSI6WzUxMiwwXX0=
           - name: scope
-            value: '{"inputs":{"source":{{workflow.parameters.source}},"dest":{{workflow.parameters.dest}},"collection":{{workflow.parameters.collection}},"color_table":{{workflow.parameters.color_table}}}}'
+            value: '{"inputs":{"dest":{{workflow.parameters.dest}},"collection":{{workflow.parameters.collection}},"bbox":{{workflow.parameters.bbox}},"datetime":{{workflow.parameters.datetime}},"max_cloud_cover":{{workflow.parameters.max_cloud_cover}},"max_items":{{workflow.parameters.max_items}}}}'
           - name: run-prefix
             value: '{{inputs.parameters.run-prefix}}/thumb'
           - name: upstream-cog
             value: '{{tasks.cog.outputs.parameters.outputs}}'
-      - name: render
-        template: tool-prescient-render-from-color-table
-        arguments:
-          parameters:
-          - name: raw-with
-            value: eyJjb2xvcl90YWJsZSI6IiR7eyBpbnB1dHMuY29sb3JfdGFibGUgfX0iLCJhc3NldCI6ImRhdGEiLCJuYW1lIjoic3N0In0=
-          - name: scope
-            value: '{"inputs":{"source":{{workflow.parameters.source}},"dest":{{workflow.parameters.dest}},"collection":{{workflow.parameters.collection}},"color_table":{{workflow.parameters.color_table}}}}'
-          - name: run-prefix
-            value: '{{inputs.parameters.run-prefix}}/render'
       - name: item
-        depends: cog && thumb && render
+        depends: cog && thumb
         template: tool-stac-item
         arguments:
           parameters:
           - name: raw-with
-            value: eyJpZCI6InNzdC0ke3sgZy5rZXkgfX0iLCJkYXRldGltZSI6IiR7eyBkYXRlKGcua2V5LCAnJVklbSVkJykgfX0iLCJhc3NldHMiOnsiZGF0YSI6eyJocmVmIjoiJHt7IHN0ZXBzLmNvZy5vdXRwdXRzLnJlc3VsdCB9fSIsInJvbGVzIjpbImRhdGEiXSwidGl0bGUiOiJTZWEgc3VyZmFjZSB0ZW1wZXJhdHVyZSJ9LCJ0aHVtYm5haWwiOnsiaHJlZiI6IiR7eyBzdGVwcy50aHVtYi5vdXRwdXRzLnJlc3VsdCB9fSIsInJvbGVzIjpbInRodW1ibmFpbCJdfX0sImV4dGVuc2lvbnMiOnsicmVuZGVyIjoiJHt7IHN0ZXBzLnJlbmRlci5vdXRwdXRzLnJlbmRlcnMgfX0ifX0=
+            value: eyJpZCI6IiR7eyBzY2VuZS5pZCB9fSIsImRhdGV0aW1lIjoiJHt7IHNjZW5lLmRhdGV0aW1lIH19IiwiYXNzZXRzIjp7InZpc3VhbCI6eyJocmVmIjoiJHt7IHN0ZXBzLmNvZy5vdXRwdXRzLnJlc3VsdCB9fSIsInJvbGVzIjpbImRhdGEiLCJ2aXN1YWwiXSwidGl0bGUiOiJUcnVlIGNvbG9yIGltYWdlIn0sInRodW1ibmFpbCI6eyJocmVmIjoiJHt7IHN0ZXBzLnRodW1iLm91dHB1dHMucmVzdWx0IH19Iiwicm9sZXMiOlsidGh1bWJuYWlsIl0sInRpdGxlIjoiVGh1bWJuYWlsIn19LCJwcm9wZXJ0aWVzIjp7InBsYXRmb3JtIjoiJHt7IHNjZW5lLnByb3BlcnRpZXMucGxhdGZvcm0gfX0iLCJjb25zdGVsbGF0aW9uIjoic2VudGluZWwtMiIsImluc3RydW1lbnRzIjpbIm1zaSJdLCJlbzpjbG91ZF9jb3ZlciI6IiR7eyBzY2VuZS5wcm9wZXJ0aWVzW1wiZW86Y2xvdWRfY292ZXJcIl0gfX0ifSwic3RhY19leHRlbnNpb25zIjpbImh0dHBzOi8vc3RhYy1leHRlbnNpb25zLmdpdGh1Yi5pby9lby92MS4xLjAvc2NoZW1hLmpzb24iXX0=
           - name: scope
-            value: '{"inputs":{"source":{{workflow.parameters.source}},"dest":{{workflow.parameters.dest}},"collection":{{workflow.parameters.collection}},"color_table":{{workflow.parameters.color_table}}},"g":{{inputs.parameters.loop-per-item}}}'
+            value: '{"inputs":{"dest":{{workflow.parameters.dest}},"collection":{{workflow.parameters.collection}},"bbox":{{workflow.parameters.bbox}},"datetime":{{workflow.parameters.datetime}},"max_cloud_cover":{{workflow.parameters.max_cloud_cover}},"max_items":{{workflow.parameters.max_items}}},"scene":{{inputs.parameters.loop-per-scene}}}'
           - name: run-prefix
             value: '{{inputs.parameters.run-prefix}}/item'
           - name: upstream-cog
             value: '{{tasks.cog.outputs.parameters.outputs}}'
           - name: upstream-thumb
             value: '{{tasks.thumb.outputs.parameters.outputs}}'
-          - name: upstream-render
-            value: '{{tasks.render.outputs.parameters.outputs}}'
     inputs:
       parameters:
       - name: run-prefix
-      - name: loop-per-item
+      - name: loop-per-scene
     outputs:
       parameters:
       - name: item
         valueFrom:
           parameter: '{{tasks.item.outputs.parameters.item}}'
-  - name: builtin-fs-group
+  - name: tool-stac-search
     initContainers:
     - name: glow-init
       image: ghcr.io/sparkgeo/glow-exec:test
@@ -132,21 +151,20 @@ spec:
       emptyDir:
         sizeLimit: 20Gi
     container:
-      image: ghcr.io/sparkgeo/glow-engine:test
+      image: local/stac:dev
       args:
-      - glow-builtin
-      - fs.group
+      - stac_search_wrapper
       command:
       - /glow/exec
       - run
       - --tool
-      - fs.group@1
+      - stac.search@1
       - --
       env:
       - name: GLOW_RAW_WITH
         value: '{{inputs.parameters.raw-with}}'
       - name: GLOW_MANIFEST
-        value: eyJuYW1lIjoiZnMuZ3JvdXAiLCJkZXNjcmlwdGlvbiI6Ikxpc3QgZmlsZXMgdW5kZXIgcm9vdCB3aG9zZSBwYXRoIHJlbGF0aXZlIHRvIHJvb3QgbWF0Y2hlcyBwYXR0ZXJuLCBhbmQgZ3JvdXAgdGhlbSBieSB0aGUgdmFsdWUgb2Ygb25lIG5hbWVkIGNhcHR1cmUuIiwiaW5wdXRzIjp7InJvb3QiOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoiUmVnaXN0ZXJlZCBsb2NhdGlvbiB0byBsaXN0LCBzdWNoIGFzIHMzOi8vYnVja2V0L3ByZWZpeC8uIiwiZm9ybWF0IjoidXJpIn0sInBhdHRlcm4iOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoiUmVndWxhciBleHByZXNzaW9uIHdpdGggbmFtZWQgY2FwdHVyZXMsIHN1Y2ggYXMgKD9QPGRhdGU+XFxkezh9KS4iLCJmb3JtYXQiOiJyZWdleCJ9LCJrZXkiOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoiTmFtZSBvZiB0aGUgY2FwdHVyZSB0byBncm91cCBieS4ifSwibWVkaWFfdHlwZSI6eyJ0eXBlIjoic3RyaW5nIiwiZGVzY3JpcHRpb24iOiJNZWRpYSB0eXBlIHRvIGFzc2lnbiB0byB0aGUgbGlzdGVkIGZpbGVzLiJ9fSwicmVxdWlyZWQiOlsicm9vdCIsInBhdHRlcm4iLCJrZXkiXSwib3V0cHV0cyI6eyJncm91cHMiOnsidHlwZSI6ImFycmF5IiwiZGVzY3JpcHRpb24iOiJPbmUgZ3JvdXAgcGVyIGRpc3RpbmN0IGtleS4iLCJpdGVtcyI6eyJ0eXBlIjoiZ3JvdXAiLCJwcm9wZXJ0aWVzIjp7ImtleSI6eyJ0eXBlIjoic3RyaW5nIiwiZGVzY3JpcHRpb24iOiJWYWx1ZSBvZiB0aGUgYGtleWAgY2FwdHVyZS4ifSwiY2FwdHVyZXMiOnsidHlwZSI6Im9iamVjdCIsImFkZGl0aW9uYWxQcm9wZXJ0aWVzIjp7InR5cGUiOiJzdHJpbmcifX0sImZpbGVzIjp7InR5cGUiOiJhcnJheSIsIml0ZW1zIjp7InR5cGUiOiJmaWxlIn19fSwicmVxdWlyZWQiOlsia2V5IiwiY2FwdHVyZXMiLCJmaWxlcyJdfX19fQ==
+        value: eyJuYW1lIjoic3RhYy5zZWFyY2giLCJkZXNjcmlwdGlvbiI6IlNlYXJjaCBhIFNUQUMgQVBJIHdpdGggUE9TVCAvc2VhcmNoIGFuZCByZXR1cm4gdGhlIG1hdGNoaW5nIGl0ZW1zLCBlYWNoIHJlZHVjZWQgdG8gaWQsIGNvbGxlY3Rpb24sIGRhdGV0aW1lLCBiYm94LCBwcm9wZXJ0aWVzIGFuZCBhc3NldHMuIiwiaW5wdXRzIjp7ImFwaSI6eyJ0eXBlIjoic3RyaW5nIiwiZGVzY3JpcHRpb24iOiJTVEFDIEFQSSByb290LiBodHRwczovLyBvbmx5LiIsImZvcm1hdCI6InVyaSIsImRlZmF1bHQiOiJodHRwczovL2VhcnRoLXNlYXJjaC5hd3MuZWxlbWVudDg0LmNvbS92MSJ9LCJjb2xsZWN0aW9ucyI6eyJ0eXBlIjoiYXJyYXkiLCJpdGVtcyI6eyJ0eXBlIjoic3RyaW5nIn0sIm1pbkl0ZW1zIjoxfSwiYmJveCI6eyJ0eXBlIjoiYXJyYXkiLCJkZXNjcmlwdGlvbiI6Ildlc3QsIHNvdXRoLCBlYXN0LCBub3J0aCBpbiBXR1M4NC4iLCJpdGVtcyI6eyJ0eXBlIjoibnVtYmVyIn0sIm1pbkl0ZW1zIjo0LCJtYXhJdGVtcyI6NH0sImRhdGV0aW1lIjp7InR5cGUiOiJzdHJpbmciLCJkZXNjcmlwdGlvbiI6IlJGQyAzMzM5IGluc3RhbnQgb3IgaW50ZXJ2YWwsIHN1Y2ggYXMgXCIyMDI2LTA1LTAxVDAwOjAwOjAwWi8yMDI2LTA5LTMwVDIzOjU5OjU5WlwiLiJ9LCJxdWVyeSI6eyJ0eXBlIjoib2JqZWN0IiwiZGVzY3JpcHRpb24iOiJRdWVyeSBleHRlbnNpb24gZmlsdGVyLCBzdWNoIGFzIHtcImVvOmNsb3VkX2NvdmVyXCI6IHtcImx0XCI6IDEwfX0uIn0sImFzc2V0cyI6eyJ0eXBlIjoiYXJyYXkiLCJkZXNjcmlwdGlvbiI6IkFzc2V0IGtleXMgdG8ga2VlcC4gRXZlcnkgaXRlbSBtdXN0IGhhdmUgdGhlbS4gRGVmYXVsdCBhbGwuIiwiaXRlbXMiOnsidHlwZSI6InN0cmluZyJ9fSwibWF4X2l0ZW1zIjp7InR5cGUiOiJpbnRlZ2VyIiwiZGVzY3JpcHRpb24iOiJTdG9wIGFmdGVyIHRoaXMgbWFueSBpdGVtcy4iLCJkZWZhdWx0IjoxMDAsIm1pbmltdW0iOjEuMH19LCJyZXF1aXJlZCI6WyJjb2xsZWN0aW9ucyJdLCJvdXRwdXRzIjp7Iml0ZW1zIjp7InR5cGUiOiJhcnJheSIsImRlc2NyaXB0aW9uIjoiTWF0Y2hpbmcgaXRlbXMsIHJlZHVjZWQgdG8gdGhlIGZpZWxkcyBiZWxvdy4iLCJpdGVtcyI6eyJ0eXBlIjoib2JqZWN0IiwicHJvcGVydGllcyI6eyJpZCI6eyJ0eXBlIjoic3RyaW5nIn0sImNvbGxlY3Rpb24iOnsidHlwZSI6InN0cmluZyJ9LCJkYXRldGltZSI6eyJ0eXBlIjoic3RyaW5nIiwiZm9ybWF0IjoiZGF0ZS10aW1lIn0sImJib3giOnsidHlwZSI6ImFycmF5IiwiaXRlbXMiOnsidHlwZSI6Im51bWJlciJ9fSwicHJvcGVydGllcyI6eyJ0eXBlIjoib2JqZWN0IiwiZGVzY3JpcHRpb24iOiJUaGUgaXRlbSBwcm9wZXJ0aWVzIGFzIHRoZSBBUEkgcmV0dXJucyB0aGVtLiJ9LCJhc3NldHMiOnsidHlwZSI6Im9iamVjdCIsImRlc2NyaXB0aW9uIjoiQXNzZXQga2V5IHRvIHtocmVmLCB0eXBlLCByb2xlcywgdGl0bGV9LiIsImFkZGl0aW9uYWxQcm9wZXJ0aWVzIjp7InR5cGUiOiJvYmplY3QiLCJwcm9wZXJ0aWVzIjp7ImhyZWYiOnsidHlwZSI6InN0cmluZyIsImZvcm1hdCI6InVyaSJ9LCJ0eXBlIjp7InR5cGUiOiJzdHJpbmcifSwicm9sZXMiOnsidHlwZSI6ImFycmF5IiwiaXRlbXMiOnsidHlwZSI6InN0cmluZyJ9fSwidGl0bGUiOnsidHlwZSI6InN0cmluZyJ9fX19fSwicmVxdWlyZWQiOlsiaWQiLCJkYXRldGltZSIsInByb3BlcnRpZXMiLCJhc3NldHMiXX19LCJjb3VudCI6eyJ0eXBlIjoiaW50ZWdlciIsImRlc2NyaXB0aW9uIjoiTnVtYmVyIG9mIGl0ZW1zIHJldHVybmVkLiJ9fSwiY29tbWFuZCI6WyJzdGFjX3NlYXJjaF93cmFwcGVyIl0sIm5ldHdvcmsiOnRydWV9
       - name: GLOW_SCOPE
         value: '{{inputs.parameters.scope}}'
       - name: GLOW_LET
@@ -186,10 +204,102 @@ spec:
       - name: outputs
         valueFrom:
           path: /work/outputs.resolved.json
-      - name: groups
+      - name: items
         valueFrom:
           default: 'null'
-          path: /work/outputs/groups.json
+          path: /work/outputs/items.json
+      - name: count
+        valueFrom:
+          default: 'null'
+          path: /work/outputs/count.json
+  - name: tool-stac-download
+    activeDeadlineSeconds: 1800
+    initContainers:
+    - name: glow-init
+      image: ghcr.io/sparkgeo/glow-exec:test
+      command:
+      - /glow-exec
+      - install
+      - /glow/exec
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    volumes:
+    - name: glow
+      emptyDir: {}
+    - name: work
+      emptyDir:
+        sizeLimit: 20Gi
+    container:
+      image: local/stac:dev
+      args:
+      - stac_download_wrapper
+      command:
+      - /glow/exec
+      - run
+      - --tool
+      - stac.download@1
+      - --
+      env:
+      - name: GLOW_RAW_WITH
+        value: '{{inputs.parameters.raw-with}}'
+      - name: GLOW_MANIFEST
+        value: eyJuYW1lIjoic3RhYy5kb3dubG9hZCIsImRlc2NyaXB0aW9uIjoiRG93bmxvYWQgb25lIGFzc2V0LCBzdWNoIGFzIGEgU1RBQyBhc3NldCBocmVmLCBvdmVyIEhUVFBTLiIsImlucHV0cyI6eyJocmVmIjp7InR5cGUiOiJzdHJpbmciLCJkZXNjcmlwdGlvbiI6Imh0dHBzOi8vIFVSTCBvZiB0aGUgYXNzZXQuIiwiZm9ybWF0IjoidXJpIn0sImZvcm1hdCI6eyJ0eXBlIjoic3RyaW5nIiwiZGVzY3JpcHRpb24iOiJGb3JtYXQgb2YgdGhlIGFzc2V0LiIsImVudW0iOlsiR1RpZmYiLCJKUDIiXSwiZGVmYXVsdCI6IkdUaWZmIn19LCJyZXF1aXJlZCI6WyJocmVmIl0sIm91dHB1dHMiOnsicmVzdWx0Ijp7InR5cGUiOiJmaWxlIiwicGF0aCI6ImFzc2V0LntleHR9IiwibWVkaWFfdHlwZV9mcm9tIjoiZm9ybWF0IiwibWVkaWFfdHlwZXMiOnsiR1RpZmYiOiJpbWFnZS90aWZmOyBhcHBsaWNhdGlvbj1nZW90aWZmIiwiSlAyIjoiaW1hZ2UvanAyIn19fSwiY29tbWFuZCI6WyJzdGFjX2Rvd25sb2FkX3dyYXBwZXIiXSwibmV0d29yayI6dHJ1ZX0=
+      - name: GLOW_SCOPE
+        value: '{{inputs.parameters.scope}}'
+      - name: GLOW_LET
+        value: '{{inputs.parameters.let}}'
+      - name: GLOW_IF
+        value: '{{inputs.parameters.if}}'
+      - name: GLOW_RUN_PREFIX
+        value: '{{inputs.parameters.run-prefix}}'
+      - name: GLOW_STAGING
+        value: copy
+      volumeMounts:
+      - name: glow
+        mountPath: /glow
+        readOnly: true
+      - name: work
+        mountPath: /work
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+    inputs:
+      parameters:
+      - name: raw-with
+      - name: scope
+      - name: let
+        default: ''
+      - name: if
+        default: ''
+      - name: run-prefix
+    outputs:
+      parameters:
+      - name: outputs
+        valueFrom:
+          path: /work/outputs.resolved.json
+      - name: result
+        valueFrom:
+          default: 'null'
+          path: /work/outputs/result.json
+    retryStrategy:
+      limit: '2'
+      retryPolicy: OnError
   - name: tool-gdal-translate
     initContainers:
     - name: glow-init
@@ -241,6 +351,8 @@ spec:
         value: '{{inputs.parameters.run-prefix}}'
       - name: GLOW_STAGING
         value: copy
+      - name: GLOW_UPSTREAM_download
+        value: '{{inputs.parameters.upstream-download}}'
       volumeMounts:
       - name: glow
         mountPath: /glow
@@ -265,6 +377,7 @@ spec:
       - name: if
         default: ''
       - name: run-prefix
+      - name: upstream-download
     outputs:
       parameters:
       - name: outputs
@@ -274,7 +387,7 @@ spec:
         valueFrom:
           default: 'null'
           path: /work/outputs/result.json
-  - name: tool-gdal-dem-color-relief
+  - name: tool-gdal-translate-thumb
     initContainers:
     - name: glow-init
       image: ghcr.io/sparkgeo/glow-exec:test
@@ -303,18 +416,18 @@ spec:
     container:
       image: local/gdal:dev
       args:
-      - gdaldem_color_relief_wrapper
+      - gdal_translate_wrapper
       command:
       - /glow/exec
       - run
       - --tool
-      - gdal.dem.color_relief@1
+      - gdal.translate@1
       - --
       env:
       - name: GLOW_RAW_WITH
         value: '{{inputs.parameters.raw-with}}'
       - name: GLOW_MANIFEST
-        value: eyJuYW1lIjoiZ2RhbC5kZW0uY29sb3JfcmVsaWVmIiwiZGVzY3JpcHRpb24iOiJDb2xvcml6ZSBhIHNpbmdsZS1iYW5kIHJhc3RlciB3aXRoIGdkYWxkZW0gY29sb3ItcmVsaWVmIGFuZCBhIGNvbG9yIHRhYmxlLCBvcHRpb25hbGx5IHJlc2l6ZWQuIEEgc2l6ZSBvZiAwIG9uIG9uZSBheGlzIGtlZXBzIHRoZSBhc3BlY3QgcmF0aW8uIiwiaW5wdXRzIjp7InNvdXJjZSI6eyJ0eXBlIjoiZmlsZSIsIm1lZGlhX3R5cGUiOlsiaW1hZ2UvdGlmZjsgYXBwbGljYXRpb249Z2VvdGlmZiIsImltYWdlL2pwMiIsImFwcGxpY2F0aW9uL3ZuZC5nZGFsLnZydCt4bWwiXSwicmVtb3RlIjp0cnVlfSwiY29sb3JfdGFibGUiOnsidHlwZSI6ImZpbGUiLCJkZXNjcmlwdGlvbiI6ImdkYWxkZW0gY29sb3IgdGFibGUsIG9uZSBcInZhbHVlIHIgZyBiIFthXVwiIGVudHJ5IHBlciBsaW5lLiIsIm1lZGlhX3R5cGUiOiJ0ZXh0L3BsYWluIn0sInNpemUiOnsidHlwZSI6ImFycmF5IiwiZGVzY3JpcHRpb24iOiJPdXRwdXQgd2lkdGggYW5kIGhlaWdodCBpbiBwaXhlbHMuIiwiaXRlbXMiOnsidHlwZSI6ImludGVnZXIiLCJtaW5pbXVtIjowLjB9LCJtaW5JdGVtcyI6MiwibWF4SXRlbXMiOjJ9LCJmb3JtYXQiOnsidHlwZSI6InN0cmluZyIsImVudW0iOlsiUE5HIiwiR1RpZmYiLCJDT0ciXSwiZGVmYXVsdCI6IlBORyJ9fSwicmVxdWlyZWQiOlsic291cmNlIiwiY29sb3JfdGFibGUiXSwib3V0cHV0cyI6eyJyZXN1bHQiOnsidHlwZSI6ImZpbGUiLCJwYXRoIjoib3V0LntleHR9IiwibWVkaWFfdHlwZV9mcm9tIjoiZm9ybWF0IiwibWVkaWFfdHlwZXMiOnsiUE5HIjoiaW1hZ2UvcG5nIiwiR1RpZmYiOiJpbWFnZS90aWZmOyBhcHBsaWNhdGlvbj1nZW90aWZmIiwiQ09HIjoiaW1hZ2UvdGlmZjsgYXBwbGljYXRpb249Z2VvdGlmZjsgcHJvZmlsZT1jbG91ZC1vcHRpbWl6ZWQifX19LCJjb21tYW5kIjpbImdkYWxkZW1fY29sb3JfcmVsaWVmX3dyYXBwZXIiXX0=
+        value: eyJuYW1lIjoiZ2RhbC50cmFuc2xhdGUiLCJkZXNjcmlwdGlvbiI6IkNvbnZlcnQgYSByYXN0ZXIgd2l0aCBnZGFsX3RyYW5zbGF0ZS4gT3V0cHV0IG1lZGlhIHR5cGUgZm9sbG93cyBgZm9ybWF0YC4iLCJpbnB1dHMiOnsic291cmNlIjp7InR5cGUiOiJmaWxlIiwicmVtb3RlIjp0cnVlLCJtZWRpYV90eXBlIjpbImltYWdlL3RpZmY7IGFwcGxpY2F0aW9uPWdlb3RpZmYiLCJpbWFnZS9qcDIiLCJhcHBsaWNhdGlvbi94LW5ldGNkZiIsImFwcGxpY2F0aW9uL3gtaGRmNSIsImFwcGxpY2F0aW9uL3ZuZC5nZGFsLnZydCt4bWwiLCJhcHBsaWNhdGlvbi9nZW9wYWNrYWdlK3NxbGl0ZTMiXX0sInN1YmRhdGFzZXQiOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoibmV0Q0RGIHZhcmlhYmxlLCByZWFkIGFzIE5FVENERjpcIjxzb3VyY2U+XCI6PHN1YmRhdGFzZXQ+LiJ9LCJmb3JtYXQiOnsidHlwZSI6InN0cmluZyIsImVudW0iOlsiQ09HIiwiR1RpZmYiLCJQTkciXSwiZGVmYXVsdCI6IkNPRyJ9LCJjcmVhdGlvbl9vcHRpb25zIjp7InR5cGUiOiJvYmplY3QiLCJhZGRpdGlvbmFsUHJvcGVydGllcyI6eyJ0eXBlIjoic3RyaW5nIn19LCJzaXplIjp7InR5cGUiOiJhcnJheSIsImRlc2NyaXB0aW9uIjoiT3V0cHV0IHdpZHRoIGFuZCBoZWlnaHQgaW4gcGl4ZWxzLiBBIDAgb24gb25lIGF4aXMga2VlcHMgdGhlIGFzcGVjdCByYXRpby4iLCJpdGVtcyI6eyJ0eXBlIjoiaW50ZWdlciIsIm1pbmltdW0iOjAuMH0sIm1pbkl0ZW1zIjoyLCJtYXhJdGVtcyI6Mn19LCJyZXF1aXJlZCI6WyJzb3VyY2UiXSwib3V0cHV0cyI6eyJyZXN1bHQiOnsidHlwZSI6ImZpbGUiLCJwYXRoIjoib3V0LntleHR9IiwibWVkaWFfdHlwZV9mcm9tIjoiZm9ybWF0IiwibWVkaWFfdHlwZXMiOnsiQ09HIjoiaW1hZ2UvdGlmZjsgYXBwbGljYXRpb249Z2VvdGlmZjsgcHJvZmlsZT1jbG91ZC1vcHRpbWl6ZWQiLCJHVGlmZiI6ImltYWdlL3RpZmY7IGFwcGxpY2F0aW9uPWdlb3RpZmYiLCJQTkciOiJpbWFnZS9wbmcifX19LCJjb21tYW5kIjpbImdkYWxfdHJhbnNsYXRlX3dyYXBwZXIiXX0=
       - name: GLOW_SCOPE
         value: '{{inputs.parameters.scope}}'
       - name: GLOW_LET
@@ -361,90 +474,6 @@ spec:
         valueFrom:
           default: 'null'
           path: /work/outputs/result.json
-  - name: tool-prescient-render-from-color-table
-    initContainers:
-    - name: glow-init
-      image: ghcr.io/sparkgeo/glow-exec:test
-      command:
-      - /glow-exec
-      - install
-      - /glow/exec
-      volumeMounts:
-      - name: glow
-        mountPath: /glow
-      securityContext:
-        allowPrivilegeEscalation: false
-        readOnlyRootFilesystem: true
-        runAsNonRoot: true
-        capabilities:
-          drop:
-          - ALL
-        seccompProfile:
-          type: RuntimeDefault
-    volumes:
-    - name: glow
-      emptyDir: {}
-    - name: work
-      emptyDir:
-        sizeLimit: 20Gi
-    container:
-      image: local/prescient:dev
-      args:
-      - render_from_color_table_wrapper
-      command:
-      - /glow/exec
-      - run
-      - --tool
-      - prescient.render_from_color_table@1
-      - --
-      env:
-      - name: GLOW_RAW_WITH
-        value: '{{inputs.parameters.raw-with}}'
-      - name: GLOW_MANIFEST
-        value: eyJuYW1lIjoicHJlc2NpZW50LnJlbmRlcl9mcm9tX2NvbG9yX3RhYmxlIiwiZGVzY3JpcHRpb24iOiJUdXJuIGEgY29sb3IgdGFibGUgaW50byBTVEFDIHJlbmRlciBleHRlbnNpb24gZW50cmllcyBmb3Igb25lIGFzc2V0LiIsImlucHV0cyI6eyJjb2xvcl90YWJsZSI6eyJ0eXBlIjoiZmlsZSIsImRlc2NyaXB0aW9uIjoiZ2RhbGRlbSBjb2xvciB0YWJsZSwgb25lIFwidmFsdWUgciBnIGIgW2FdXCIgZW50cnkgcGVyIGxpbmUuIiwibWVkaWFfdHlwZSI6InRleHQvcGxhaW4ifSwiYXNzZXQiOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoiQXNzZXQga2V5IHRoZSByZW5kZXIgYXBwbGllcyB0by4ifSwibmFtZSI6eyJ0eXBlIjoic3RyaW5nIiwiZGVzY3JpcHRpb24iOiJSZW5kZXIgbmFtZS4ifX0sInJlcXVpcmVkIjpbImNvbG9yX3RhYmxlIiwiYXNzZXQiLCJuYW1lIl0sIm91dHB1dHMiOnsicmVuZGVycyI6eyJ0eXBlIjoib2JqZWN0IiwiZGVzY3JpcHRpb24iOiJTVEFDIHJlbmRlciBleHRlbnNpb24gb2JqZWN0cyBrZXllZCBieSBuYW1lLiBUaGUgcmVuZGVyIHJlc2NhbGVzIHRoZSBjb2xvciB0YWJsZSdzIHZhbHVlIHJhbmdlIG9udG8gMC4uMjU1IGFuZCBoYXMgYSAyNTYtZW50cnkgY29sb3JtYXAuIn19LCJjb21tYW5kIjpbInJlbmRlcl9mcm9tX2NvbG9yX3RhYmxlX3dyYXBwZXIiXX0=
-      - name: GLOW_SCOPE
-        value: '{{inputs.parameters.scope}}'
-      - name: GLOW_LET
-        value: '{{inputs.parameters.let}}'
-      - name: GLOW_IF
-        value: '{{inputs.parameters.if}}'
-      - name: GLOW_RUN_PREFIX
-        value: '{{inputs.parameters.run-prefix}}'
-      - name: GLOW_STAGING
-        value: copy
-      volumeMounts:
-      - name: glow
-        mountPath: /glow
-        readOnly: true
-      - name: work
-        mountPath: /work
-      securityContext:
-        allowPrivilegeEscalation: false
-        readOnlyRootFilesystem: true
-        runAsNonRoot: true
-        capabilities:
-          drop:
-          - ALL
-        seccompProfile:
-          type: RuntimeDefault
-    inputs:
-      parameters:
-      - name: raw-with
-      - name: scope
-      - name: let
-        default: ''
-      - name: if
-        default: ''
-      - name: run-prefix
-    outputs:
-      parameters:
-      - name: outputs
-        valueFrom:
-          path: /work/outputs.resolved.json
-      - name: renders
-        valueFrom:
-          default: 'null'
-          path: /work/outputs/renders.json
   - name: tool-stac-item
     initContainers:
     - name: glow-init
@@ -500,8 +529,6 @@ spec:
         value: '{{inputs.parameters.upstream-cog}}'
       - name: GLOW_UPSTREAM_thumb
         value: '{{inputs.parameters.upstream-thumb}}'
-      - name: GLOW_UPSTREAM_render
-        value: '{{inputs.parameters.upstream-render}}'
       volumeMounts:
       - name: glow
         mountPath: /glow
@@ -528,7 +555,6 @@ spec:
       - name: run-prefix
       - name: upstream-cog
       - name: upstream-thumb
-      - name: upstream-render
     outputs:
       parameters:
       - name: outputs
@@ -589,8 +615,8 @@ spec:
         value: '{{inputs.parameters.run-prefix}}'
       - name: GLOW_STAGING
         value: copy
-      - name: GLOW_UPSTREAM_per_item
-        value: '{{inputs.parameters.upstream-per-item}}'
+      - name: GLOW_UPSTREAM_per_scene
+        value: '{{inputs.parameters.upstream-per-scene}}'
       volumeMounts:
       - name: glow
         mountPath: /glow
@@ -615,7 +641,7 @@ spec:
       - name: if
         default: ''
       - name: run-prefix
-      - name: upstream-per-item
+      - name: upstream-per-scene
     outputs:
       parameters:
       - name: outputs
@@ -627,7 +653,14 @@ spec:
           path: /work/outputs/published.json
   arguments:
     parameters:
-    - name: source
     - name: dest
     - name: collection
-    - name: color_table
+      value: '"sentinel-2-l2a-vancouver-island"'
+    - name: bbox
+      value: '[-128.5,48.3,-123.2,50.9]'
+    - name: datetime
+      value: '"2026-05-01T00:00:00Z/2026-09-30T23:59:59Z"'
+    - name: max_cloud_cover
+      value: '10'
+    - name: max_items
+      value: '400'
